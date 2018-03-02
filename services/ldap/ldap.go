@@ -1,9 +1,7 @@
 package ldap
 
 import (
-	"bufio"
 	"context"
-	"io"
 	"net"
 
 	"github.com/honeytrap/honeytrap/event"
@@ -30,12 +28,8 @@ func LDAP(options ...services.ServicerFunc) services.Servicer {
 	return s
 }
 
-type htLog struct {
-	cmd, param string
-}
-
 type ldapService struct {
-	msg chan htLog
+	msg chan Message
 
 	c pushers.Channel
 }
@@ -46,23 +40,6 @@ func (s *ldapService) SetChannel(c pushers.Channel) {
 }
 
 func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
-
-	br := bufio.NewReader(conn)
-	//tp := textproto.NewReader(br)
-
-	for {
-		line, err := br.ReadBytes('\n')
-		if err != nil {
-			if err == io.EOF {
-				log.Debugf("EOF, size %d, bytes %v", len(line), line)
-				return nil
-			}
-
-			return err
-		}
-
-		log.Debugf("size %d, bytes %v", len(line), line)
-	}
 
 	c, err := NewConn(conn, s.msg)
 	if err != nil {
@@ -78,8 +55,8 @@ func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 					event.Category("ldap"),
 					event.SourceAddr(conn.RemoteAddr()),
 					event.DestinationAddr(conn.LocalAddr()),
-					event.Custom("ldap.cmd", msg.cmd),
-					event.Custom("ldap.param", msg.param),
+					event.Custom("ldap.id", msg.cmd),
+					event.Custom("ldap.operation", msg.protocolOp),
 				))
 			}
 		}
