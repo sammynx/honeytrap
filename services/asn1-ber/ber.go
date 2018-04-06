@@ -10,8 +10,8 @@ import (
 	"reflect"
 )
 
-// MaxPacketLengthBytes specifies the maximum allowed packet size when calling ReadPacket or DecodePacket. Set to 0 for
-// no limit.
+// MaxPacketLengthBytes specifies the maximum allowed packet size when calling ReadPacket or DecodePacket.
+// Set to 0 for no limit.
 var MaxPacketLengthBytes int64 = math.MaxInt32
 
 type Packet struct {
