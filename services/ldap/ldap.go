@@ -45,13 +45,6 @@ func (s *ldapService) SetChannel(c pushers.Channel) {
 
 func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 
-	br := bufio.NewReader(conn)
-
-	packet, err := ber.ReadPacket(br)
-	if err != nil {
-		return err
-	}
-
 	// TODO: More logging!
 	go func() {
 		for {
@@ -73,25 +66,47 @@ func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 		}
 	}()
 
-	ber.PrintPacket(packet)
+	for {
+		br := bufio.NewReader(conn)
 
-	// Decode an ASN.1 packet into a Message
-	m, err := NewMessage(packet)
-	if err != nil {
-		return err
+		packet, err := ber.ReadPacket(br)
+		if err != nil {
+			return err
+		}
+
+		ber.PrintPacket(packet)
+
+		// Decode an ASN.1 packet into a Message
+		m, err := NewMessage(packet)
+		if err != nil {
+			return err
+		}
+
+		log.Debugf("MessageCode: %x %s id %d", m.protocolOp, appCodes[m.protocolOp], m.id)
+
+		// Send Message for logging
+		s.m <- m
+
+		// Close the connection if unbind is requested
+		if m.protocolOp == ApplicationUnbindRequest || m.protocolOp == ApplicationAbandonRequest {
+			// Cleanup pending operatons if neccesary
+			return nil
+		}
+
+		// Handle request and create a response packet(ASN.1)
+		p, err := m.Response()
+		if err != nil {
+			return err
+		}
+
+		ber.PrintPacket(p)
+
+		// Write the response
+		if _, err := conn.Write(p.Bytes()); err != nil {
+			return err
+		}
+
 	}
 
-	// Send Message for logging
-	s.m <- m
-
-	// Handle request and create a response packet(ASN.1)
-	p, err := m.Response()
-	if err != nil {
-		return err
-	}
-
-	// Write the response
-	_, err = conn.Write(p.Bytes())
-
-	return err
+	return nil
 }
