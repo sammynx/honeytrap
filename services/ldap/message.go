@@ -72,6 +72,7 @@ const (
 type Message struct {
 	id         int
 	protocolOp int
+	log        map[string]interface{}
 	control    []Control
 }
 
@@ -79,18 +80,6 @@ type Control struct {
 	controlType int
 	criticality bool
 	value       string
-}
-
-func NewMessage(p *ber.Packet) (*Message, error) {
-
-	m := &Message{
-		id:         int(p.Children[0].Value.(int64)),
-		protocolOp: int(p.Children[1].Tag),
-	}
-
-	//ASN.1 BER decode req
-
-	return m, nil
 }
 
 var (
@@ -108,6 +97,22 @@ var (
 		"Succes")
 )
 
+func NewMessage(p *ber.Packet) (*Message, error) {
+
+	m := &Message{
+		id:         int(p.Children[0].Value.(int64)),
+		protocolOp: int(p.Children[1].Tag),
+		log:        make(map[string]interface{}),
+	}
+
+	switch m.protocolOp {
+
+	case ApplicationBindRequest:
+		m.log["ldap.version"] = p.Children[1].Children[0].Value
+	}
+	return m, nil
+}
+
 // Return an ASN.1 BER/DER encoded LDAP response packet
 func (m *Message) Response() (*ber.Packet, error) {
 	var (
@@ -120,7 +125,7 @@ func (m *Message) Response() (*ber.Packet, error) {
 	switch m.protocolOp {
 
 	case ApplicationBindRequest:
-		pc, err = simpleBind()
+		pc, err = m.simpleBind()
 		p.AppendChild(pc)
 	case ApplicationAddRequest:
 		fallthrough
@@ -168,7 +173,9 @@ func (m *Message) envelope() *ber.Packet {
 	return p
 }
 
-func simpleBind() (*ber.Packet, error) {
+func (m *Message) simpleBind() (*ber.Packet, error) {
+
+	// Check Auth
 
 	p := ber.Encode(ber.ClassApplication, ber.TypeConstructed, ApplicationBindResponse, nil, "Bind Response")
 	p.AppendChild(ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagEnumerated, 0, "Succes"))

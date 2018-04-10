@@ -45,6 +45,10 @@ func (s *ldapService) SetChannel(c pushers.Channel) {
 
 func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 
+	br := bufio.NewReader(conn)
+
+	c := NewConn(conn)
+
 	// TODO: More logging!
 	go func() {
 		for {
@@ -61,20 +65,18 @@ func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 					event.DestinationAddr(conn.LocalAddr()),
 					event.Custom("ldap.id", msg.id),
 					event.Custom("ldap.operation", op),
+					event.CopyFrom(msg.log),
 				))
 			}
 		}
 	}()
 
 	for {
-		br := bufio.NewReader(conn)
 
 		packet, err := ber.ReadPacket(br)
 		if err != nil {
 			return err
 		}
-
-		ber.PrintPacket(packet)
 
 		// Decode an ASN.1 packet into a Message
 		m, err := NewMessage(packet)
@@ -82,9 +84,7 @@ func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 			return err
 		}
 
-		log.Debugf("MessageCode: %x %s id %d", m.protocolOp, appCodes[m.protocolOp], m.id)
-
-		// Send Message for logging
+		// Send Message for logging.
 		s.m <- m
 
 		// Close the connection if unbind is requested
@@ -99,10 +99,8 @@ func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 			return err
 		}
 
-		ber.PrintPacket(p)
-
 		// Write the response
-		if _, err := conn.Write(p.Bytes()); err != nil {
+		if err := c.Write(p.Bytes()); err != nil {
 			return err
 		}
 

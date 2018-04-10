@@ -181,14 +181,18 @@ func printPacket(out io.Writer, p *Packet, indent int, printBytes bool) {
 		tag_str = tagMap[p.Tag]
 	}
 
-	value := fmt.Sprint(p.Value)
+	value, ok := p.Value.(string)
+	if !ok {
+		value = fmt.Sprint(p.Value)
+	}
+
 	description := ""
 
 	if p.Description != "" {
 		description = p.Description + ": "
 	}
 
-	fmt.Fprintf(out, "%s%s(%s, %s, %s) Len=%d %q\n", indent_str, description, class_str, tagtype_str, tag_str, p.Data.Len(), value)
+	fmt.Fprintf(out, "%s%s(%s, %s, %s) Len=%d Value: %q ByteValue: %v, Data: %q\n", indent_str, description, class_str, tagtype_str, tag_str, p.Data.Len(), value, p.ByteValue, p.Data.String())
 
 	if printBytes {
 		PrintBytes(out, p.Bytes(), indent_str)
