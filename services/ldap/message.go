@@ -68,7 +68,7 @@ const (
 	ResultEntryAlreadyExist        = 68
 )
 
-// LDAP message
+// Message defines an LDAP message
 type Message struct {
 	id         int
 	protocolOp int
@@ -76,6 +76,7 @@ type Message struct {
 	control    []Control
 }
 
+// Control defines an optional LDAP control
 type Control struct {
 	controlType int
 	criticality bool
@@ -97,6 +98,7 @@ var (
 		"Succes")
 )
 
+// NewMessage creates a new LDAP message
 func NewMessage(p *ber.Packet) (*Message, error) {
 
 	m := &Message{
@@ -113,8 +115,8 @@ func NewMessage(p *ber.Packet) (*Message, error) {
 	return m, nil
 }
 
-// Return an ASN.1 BER/DER encoded LDAP response packet
-func (m *Message) Response() (*ber.Packet, error) {
+// Response returns an ASN.1 BER/DER encoded LDAP response packet
+func (m *Message) Response(authState int) (*ber.Packet, error) {
 	var (
 		err error
 		pc  *ber.Packet

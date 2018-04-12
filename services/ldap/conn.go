@@ -2,33 +2,26 @@ package ldap
 
 import (
 	"net"
-
-	ber "github.com/honeytrap/honeytrap/services/asn1-ber"
 )
 
+// Authentication states
 const (
 	AuthAnonymous = iota
 	AuthUser
 	AuthAdmin
 )
 
+// Conn is a connection object for an LDAP session
 type Conn struct {
 	conn      net.Conn
-	msg       *Message
 	authState int
 }
 
+// Return a new connection
 func NewConn(c net.Conn) *Conn {
 	return &Conn{
 		conn:      c,
 		authState: AuthAnonymous,
-	}
-}
-
-func (c *Conn) NewMessage(p *ber.Packet) {
-	c.msg = &Message{
-		id:         int(p.Children[0].Value.(int64)),
-		protocolOp: int(p.Children[1].Tag),
 	}
 }
 

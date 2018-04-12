@@ -18,7 +18,7 @@ var (
 	log = logging.MustGetLogger("services/ldap")
 )
 
-// Setup for LDAP service
+// LDAP service setup
 func LDAP(options ...services.ServicerFunc) services.Servicer {
 
 	s := &ldapService{
@@ -26,7 +26,9 @@ func LDAP(options ...services.ServicerFunc) services.Servicer {
 	}
 
 	for _, o := range options {
-		o(s)
+		if err := o(s); err != nil {
+			log.Warning(err.Error())
+		}
 	}
 
 	return s
@@ -49,7 +51,6 @@ func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 
 	c := NewConn(conn)
 
-	// TODO: More logging!
 	go func() {
 		for {
 			select {
@@ -94,7 +95,7 @@ func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 		}
 
 		// Handle request and create a response packet(ASN.1)
-		p, err := m.Response()
+		p, err := m.Response(c.authState)
 		if err != nil {
 			return err
 		}
@@ -106,5 +107,5 @@ func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 
 	}
 
-	return nil
+	//return nil
 }
