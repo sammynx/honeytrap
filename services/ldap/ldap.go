@@ -3,7 +3,6 @@ package ldap
 import (
 	"bufio"
 	"context"
-	"fmt"
 	"net"
 
 	"github.com/honeytrap/honeytrap/event"
@@ -21,9 +20,7 @@ var (
 // LDAP service setup
 func LDAP(options ...services.ServicerFunc) services.Servicer {
 
-	s := &ldapService{
-		m: make(chan *Message, 1),
-	}
+	s := &ldapService{}
 
 	for _, o := range options {
 		if err := o(s); err != nil {
@@ -35,8 +32,6 @@ func LDAP(options ...services.ServicerFunc) services.Servicer {
 }
 
 type ldapService struct {
-	m chan *Message
-
 	c pushers.Channel
 }
 
@@ -50,27 +45,6 @@ func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 	br := bufio.NewReader(conn)
 
 	c := NewConn(conn)
-
-	go func() {
-		for {
-			select {
-			case msg := <-s.m:
-				op, ok := appCodes[msg.protocolOp]
-				if !ok {
-					op = fmt.Sprint(msg.protocolOp)
-				}
-				s.c.Send(event.New(
-					services.EventOptions,
-					event.Category("ldap"),
-					event.SourceAddr(conn.RemoteAddr()),
-					event.DestinationAddr(conn.LocalAddr()),
-					event.Custom("ldap.id", msg.id),
-					event.Custom("ldap.operation", op),
-					event.CopyFrom(msg.log),
-				))
-			}
-		}
-	}()
 
 	for {
 
@@ -86,11 +60,17 @@ func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 		}
 
 		// Send Message for logging.
-		s.m <- m
+		s.c.Send(event.New(
+			services.EventOptions,
+			event.Category("ldap"),
+			event.SourceAddr(conn.RemoteAddr()),
+			event.DestinationAddr(conn.LocalAddr()),
+			event.CopyFrom(m.log),
+		))
 
 		// Close the connection if unbind is requested
 		if m.protocolOp == ApplicationUnbindRequest || m.protocolOp == ApplicationAbandonRequest {
-			// Cleanup pending operatons if neccesary
+			// Cleanup pending operatons if necessary
 			return nil
 		}
 
@@ -101,11 +81,9 @@ func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 		}
 
 		// Write the response
-		if err := c.Write(p.Bytes()); err != nil {
+		if _, err := c.conn.Write(p.Bytes()); err != nil {
 			return err
 		}
 
 	}
-
-	//return nil
 }

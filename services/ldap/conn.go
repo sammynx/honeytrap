@@ -17,18 +17,10 @@ type Conn struct {
 	authState int
 }
 
-// Return a new connection
+// NewConn create a new LDAP connection
 func NewConn(c net.Conn) *Conn {
 	return &Conn{
 		conn:      c,
 		authState: AuthAnonymous,
 	}
-}
-
-func (c *Conn) Write(b []byte) error {
-	if _, err := c.conn.Write(b); err != nil {
-		return err
-	}
-
-	return nil
 }

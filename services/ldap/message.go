@@ -51,7 +51,7 @@ var appCodes = map[int]string{
 
 // Resultcodes
 const (
-	ResultSucces                   = 0
+	ResultSuccess                  = 0
 	ResultOperationsError          = 1
 	ResultProtocolError            = 2
 	ResultTimeLimitExceeded        = 3
@@ -94,7 +94,7 @@ var (
 		ber.ClassUniversal,
 		ber.TypePrimitive,
 		ber.TagEnumerated,
-		ResultSucces,
+		ResultSuccess,
 		"Succes")
 )
 
@@ -105,6 +105,13 @@ func NewMessage(p *ber.Packet) (*Message, error) {
 		id:         int(p.Children[0].Value.(int64)),
 		protocolOp: int(p.Children[1].Tag),
 		log:        make(map[string]interface{}),
+	}
+
+	m.log["ldap.id"] = m.id
+	m.log["ldap.operation"] = m.protocolOp
+
+	if op, ok := appCodes[m.protocolOp]; ok {
+		m.log["ldap.operation"] = op
 	}
 
 	switch m.protocolOp {
