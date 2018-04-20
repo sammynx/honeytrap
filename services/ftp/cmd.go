@@ -217,11 +217,10 @@ func (cmd commandCwd) RequireAuth() bool {
 }
 
 func (cmd commandCwd) Execute(conn *Conn, param string) {
-	log.Debugf("FTP server: cmd PWD param: %s", param)
-	path := conn.buildPath(param)
-	err := conn.driver.ChangeDir(path)
+	err := conn.driver.ChangeDir(param)
+	path := conn.driver.CurDir()
 	if err == nil {
-		conn.namePrefix = path
+		//conn.namePrefix = path
 		conn.writeMessage(250, "Directory changed to "+path)
 	} else {
 		conn.writeMessage(550, fmt.Sprintln("Directory change to", path, "failed:", err))
@@ -245,12 +244,11 @@ func (cmd commandDele) RequireAuth() bool {
 }
 
 func (cmd commandDele) Execute(conn *Conn, param string) {
-	path := conn.buildPath(param)
-	err := conn.driver.DeleteFile(path)
+	err := conn.driver.DeleteFile(param)
 	if err == nil {
 		conn.writeMessage(250, "File deleted")
 	} else {
-		conn.writeMessage(550, fmt.Sprintln("File delete failed:", err))
+		conn.writeMessage(550, fmt.Sprintln("File delete failed: ", err))
 	}
 }
 
@@ -321,6 +319,9 @@ func (cmd commandEpsv) Execute(conn *Conn, param string) {
 		conn.writeMessage(425, "Data connection failed")
 		return
 	}
+
+	log.Debugf("EPSV: new socket on port: %d", socket.Port)
+
 	conn.dataConn = socket
 	msg := fmt.Sprintf("Entering Extended Passive Mode (|||%d|)", socket.Port())
 	conn.writeMessage(229, msg)
@@ -351,7 +352,6 @@ func (cmd commandList) Execute(conn *Conn, param string) {
 	}
 
 	conn.sendOutofbandData(listFormatter(files).Detailed())
-	//conn.writeMessage(200, string(listFormatter(files).Detailed()))
 }
 
 // commandNlst responds to the NLST FTP command. It allows the client to
@@ -398,8 +398,7 @@ func (cmd commandMdtm) RequireAuth() bool {
 }
 
 func (cmd commandMdtm) Execute(conn *Conn, param string) {
-	path := conn.buildPath(param)
-	stat, err := conn.driver.Stat(path)
+	stat, err := conn.driver.Stat(param)
 	if err == nil {
 		conn.writeMessage(213, stat.ModTime().Format("20060102150405"))
 	}
@@ -424,8 +423,7 @@ func (cmd commandMkd) RequireAuth() bool {
 }
 
 func (cmd commandMkd) Execute(conn *Conn, param string) {
-	path := conn.buildPath(param)
-	err := conn.driver.MakeDir(path)
+	err := conn.driver.MakeDir(param)
 	if err == nil {
 		conn.writeMessage(257, "Directory created")
 	} else {
@@ -535,11 +533,15 @@ func (cmd commandPasv) RequireAuth() bool {
 
 func (cmd commandPasv) Execute(conn *Conn, param string) {
 	listenIP := conn.passiveListenIP()
+
 	socket, err := newPassiveSocket(listenIP, conn.PassivePort(), conn.sessionid, conn.tlsConfig)
 	if err != nil {
-		conn.writeMessage(425, "Data connection failed")
+		conn.writeMessage(425, "Data connection failed, socket")
 		return
 	}
+
+	log.Debugf("PASV: new socket on port: %d", socket.Port)
+
 	conn.dataConn = socket
 	p1 := socket.Port() / 256
 	p2 := socket.Port() - (p1 * 256)
@@ -600,7 +602,6 @@ func (cmd commandPwd) RequireAuth() bool {
 }
 
 func (cmd commandPwd) Execute(conn *Conn, param string) {
-	log.Debug("FTP server: PWD execute")
 	conn.writeMessage(257, conn.driver.CurDir())
 }
 
@@ -642,11 +643,10 @@ func (cmd commandRetr) RequireAuth() bool {
 }
 
 func (cmd commandRetr) Execute(conn *Conn, param string) {
-	path := conn.buildPath(param)
 	defer func() {
 		conn.lastFilePos = 0
 	}()
-	bytes, data, err := conn.driver.GetFile(path, conn.lastFilePos)
+	bytes, data, err := conn.driver.GetFile(param, conn.lastFilePos)
 	if err == nil {
 		defer data.Close()
 		conn.writeMessage(150, fmt.Sprintf("Data transfer starting %v bytes", bytes))
@@ -700,7 +700,7 @@ func (cmd commandRnfr) RequireAuth() bool {
 }
 
 func (cmd commandRnfr) Execute(conn *Conn, param string) {
-	conn.renameFrom = conn.buildPath(param)
+	conn.renameFrom = param
 	conn.writeMessage(350, "Requested file action pending further information.")
 }
 
@@ -721,8 +721,7 @@ func (cmd commandRnto) RequireAuth() bool {
 }
 
 func (cmd commandRnto) Execute(conn *Conn, param string) {
-	toPath := conn.buildPath(param)
-	err := conn.driver.Rename(conn.renameFrom, toPath)
+	err := conn.driver.Rename(conn.renameFrom, param)
 	defer func() {
 		conn.renameFrom = ""
 	}()
@@ -751,8 +750,7 @@ func (cmd commandRmd) RequireAuth() bool {
 }
 
 func (cmd commandRmd) Execute(conn *Conn, param string) {
-	path := conn.buildPath(param)
-	err := conn.driver.DeleteDir(path)
+	err := conn.driver.DeleteDir(param)
 	if err == nil {
 		conn.writeMessage(250, "Directory deleted")
 	} else {
@@ -797,7 +795,7 @@ func (cmd commandAuth) Execute(conn *Conn, param string) {
 		conn.writeMessage(234, "AUTH command OK")
 		err := conn.upgradeToTLS()
 		if err != nil {
-			log.Debugf("Error upgrading connection to TLS %v", err.Error())
+			log.Debugf("Error upgrading connection to TLS %s", err.Error())
 		}
 	} else {
 		conn.writeMessage(550, "Action not taken")
@@ -939,15 +937,14 @@ func (cmd commandSize) RequireAuth() bool {
 }
 
 func (cmd commandSize) Execute(conn *Conn, param string) {
-	path := conn.buildPath(param)
-	stat, err := conn.driver.Stat(path)
+	stat, err := conn.driver.Stat(param)
 	if err != nil {
 		log.Debugf("Size: error(%s)", err.Error())
-		conn.writeMessage(450, fmt.Sprintln("path", path, "not found"))
+		conn.writeMessage(450, fmt.Sprintln("path", param, "not found"))
 	} else {
-		conn.writeMessage(213, strconv.Itoa(stat.Size()))
+		conn.writeMessage(213, strconv.Itoa(int(stat.Size())))
 	}
-	conn.writeMessage(450, fmt.Sprintln("path", path, "not found"))
+	conn.writeMessage(450, fmt.Sprintln("path", param, "not found"))
 }
 
 // commandStor responds to the STOR FTP command. It allows the user to upload a
@@ -967,14 +964,13 @@ func (cmd commandStor) RequireAuth() bool {
 }
 
 func (cmd commandStor) Execute(conn *Conn, param string) {
-	targetPath := conn.buildPath(param)
 	conn.writeMessage(150, "Data transfer starting")
 
 	defer func() {
 		conn.appendData = false
 	}()
 
-	bytes, err := conn.driver.PutFile(targetPath, conn.dataConn, conn.appendData)
+	bytes, err := conn.driver.PutFile(param, conn.dataConn, conn.appendData)
 	if err == nil {
 		msg := "OK, received " + strconv.Itoa(int(bytes)) + " bytes"
 		conn.writeMessage(226, msg)

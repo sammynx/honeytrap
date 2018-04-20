@@ -36,7 +36,6 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	"net"
 	"net/http"
 
 	"github.com/google/gopacket/layers"
@@ -56,22 +55,6 @@ var (
 		SensorCanary,
 	)
 )
-
-// EventUDP will return a snmp event struct
-func EventUDP(sourceIP, destinationIP net.IP, srcport, dstport uint16, payload []byte) event.Event {
-	return event.New(
-		SensorCanary,
-		EventCategoryUDP,
-
-		event.SourceIP(sourceIP),
-		event.DestinationIP(destinationIP),
-
-		event.SourcePort(srcport),
-		event.DestinationPort(dstport),
-
-		event.Payload(payload),
-	)
-}
 
 var (
 	// EventCategorySSDP contains events for ssdp traffic
@@ -289,6 +272,8 @@ func (c *Canary) DecodeDNS(iph *ipv4.Header, udph *udp.Header) error {
 			event.SourcePort(udph.Source),
 			event.DestinationPort(udph.Destination),
 
+			event.Payload(udph.Payload),
+
 			event.Custom("dns.message", fmt.Sprintf("Querying for: %#q", dns.Questions)),
 			event.Custom("dns.questions", dns.Questions),
 		))
@@ -302,6 +287,8 @@ func (c *Canary) DecodeDNS(iph *ipv4.Header, udph *udp.Header) error {
 			event.DestinationIP(iph.Dst),
 			event.SourcePort(udph.Source),
 			event.DestinationPort(udph.Destination),
+
+			event.Payload(udph.Payload),
 
 			event.Message("opcode=%+q questions=%#q", dns.OpCode, dns.Questions),
 			event.Custom("dns.opcode", dns.OpCode),

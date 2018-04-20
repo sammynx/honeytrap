@@ -52,6 +52,8 @@ import (
 	"github.com/honeytrap/honeytrap/director"
 	_ "github.com/honeytrap/honeytrap/director/forward"
 	_ "github.com/honeytrap/honeytrap/director/lxc"
+	// _ "github.com/honeytrap/honeytrap/director/qemu"
+	// Import your directors here.
 
 	"github.com/honeytrap/honeytrap/pushers"
 	"github.com/honeytrap/honeytrap/pushers/eventbus"
@@ -64,6 +66,7 @@ import (
 	_ "github.com/honeytrap/honeytrap/services/ipp"
 	_ "github.com/honeytrap/honeytrap/services/ldap"
 	_ "github.com/honeytrap/honeytrap/services/redis"
+	_ "github.com/honeytrap/honeytrap/services/smtp"
 	_ "github.com/honeytrap/honeytrap/services/ssh"
 	_ "github.com/honeytrap/honeytrap/services/vnc"
 
@@ -84,6 +87,7 @@ import (
 	_ "github.com/honeytrap/honeytrap/pushers/elasticsearch" // Registers elasticsearch backend.
 	_ "github.com/honeytrap/honeytrap/pushers/file"          // Registers file backend.
 	_ "github.com/honeytrap/honeytrap/pushers/kafka"         // Registers kafka backend.
+	_ "github.com/honeytrap/honeytrap/pushers/marija"        // Registers marija backend.
 	_ "github.com/honeytrap/honeytrap/pushers/raven"         // Registers raven backend.
 	_ "github.com/honeytrap/honeytrap/pushers/slack"         // Registers slack backend.
 	_ "github.com/honeytrap/honeytrap/pushers/splunk"        // Registers splunk backend.
@@ -352,6 +356,7 @@ func (hc *Honeytrap) Run(ctx context.Context) {
 
 	// initialize directors
 	directors := map[string]director.Director{}
+	availableDirectorNames := director.GetAvailableDirectorNames()
 
 	for key, s := range hc.config.Directors {
 		x := struct {
@@ -370,7 +375,7 @@ func (hc *Honeytrap) Run(ctx context.Context) {
 		}
 
 		if directorFunc, ok := director.Get(x.Type); !ok {
-			log.Error("Director %s not supported on platform (%s)", x.Type, key)
+			log.Error("Director type=%s not supported on platform (director=%s). Available directors: %s", x.Type, key, strings.Join(availableDirectorNames, ", "))
 		} else if d, err := directorFunc(
 			director.WithChannel(hc.bus),
 			director.WithConfig(s),
@@ -428,6 +433,11 @@ func (hc *Honeytrap) Run(ctx context.Context) {
 		}
 	}
 
+	var enabledDirectorNames []string
+	for key := range directors {
+		enabledDirectorNames = append(enabledDirectorNames, key)
+	}
+
 	// same for proxies
 	for key, s := range hc.config.Services {
 		x := struct {
@@ -451,7 +461,7 @@ func (hc *Honeytrap) Run(ctx context.Context) {
 		} else if d, ok := directors[x.Director]; ok {
 			options = append(options, services.WithDirector(d))
 		} else {
-			log.Error(color.RedString("Could not find director=%s for service=%s", x.Director, key))
+			log.Error(color.RedString("Could not find director=%s for service=%s. Enabled directors: %s", x.Director, key, strings.Join(enabledDirectorNames, ", ")))
 			continue
 		}
 
@@ -492,6 +502,7 @@ func (hc *Honeytrap) Run(ctx context.Context) {
 
 	if err := l.Start(ctx); err != nil {
 		fmt.Println(color.RedString("Error starting listener: %s", err.Error()))
+		return
 	}
 
 	incoming := make(chan net.Conn)

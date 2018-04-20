@@ -20,17 +20,11 @@ type ServerOpts struct {
 	// Public IP of the server
 	PublicIp string
 
-	// Passive ports
+	// Passive ports, port range to choose from e.g. "10-20"
 	PassivePorts string
 
 	// use tls, default is false
 	TLS bool
-
-	// if tls used, cert file is required
-	//CertFile string
-
-	// if tls used, key file is required
-	//KeyFile string
 
 	// If ture TLS is used in RFC4217 mode
 	ExplicitFTPS bool
@@ -115,17 +109,13 @@ func (server *Server) newConn(tcpConn net.Conn, driver Driver, recv chan string)
 	return c
 }
 
-func simpleTLSConfig(certFile, keyFile string) (*tls.Config, error) {
-	config := &tls.Config{}
-	if config.NextProtos == nil {
-		config.NextProtos = []string{"ftp"}
+func simpleTLSConfig(cert *tls.Certificate) *tls.Config {
+	if cert == nil {
+		return nil
 	}
 
-	var err error
-	config.Certificates = make([]tls.Certificate, 1)
-	config.Certificates[0], err = tls.LoadX509KeyPair(certFile, keyFile)
-	if err != nil {
-		return nil, err
+	return &tls.Config{
+		Certificates:       []tls.Certificate{*cert},
+		InsecureSkipVerify: true,
 	}
-	return config, nil
 }

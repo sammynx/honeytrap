@@ -54,9 +54,12 @@ func MustDB() *badger.DB {
 	opts := badger.DefaultOptions
 
 	p := filepath.Join(dataDir, "badger.db")
-
 	opts.Dir = p
 	opts.ValueDir = p
+
+	for _, fn := range PlatformOptions {
+		fn(&opts)
+	}
 
 	db, err := badger.Open(opts)
 	if err != nil {

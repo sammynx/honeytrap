@@ -161,11 +161,28 @@ func Sensor(s string) Option {
 }
 
 // SourceAddr returns an option for setting the source-ip value.
+func SourceHardwareAddr(addr net.HardwareAddr) Option {
+	return func(m Event) {
+		m.Store("source-mac", addr.String())
+	}
+}
+
+// DestinationAddr returns an option for setting the destination-ip value.
+func DestinationHardwareAddr(addr net.HardwareAddr) Option {
+	return func(m Event) {
+		m.Store("destination-mac", addr.String())
+	}
+}
+
+// SourceAddr returns an option for setting the source-ip value.
 func SourceAddr(addr net.Addr) Option {
 	return func(m Event) {
 		if ta, ok := addr.(*net.TCPAddr); ok {
 			m.Store("source-ip", ta.IP.String())
 			m.Store("source-port", ta.Port)
+		} else if ua, ok := addr.(*net.UDPAddr); ok {
+			m.Store("source-ip", ua.IP.String())
+			m.Store("source-port", ua.Port)
 		}
 	}
 }
@@ -176,6 +193,9 @@ func DestinationAddr(addr net.Addr) Option {
 		if ta, ok := addr.(*net.TCPAddr); ok {
 			m.Store("destination-ip", ta.IP.String())
 			m.Store("destination-port", ta.Port)
+		} else if ua, ok := addr.(*net.UDPAddr); ok {
+			m.Store("destination-ip", ua.IP.String())
+			m.Store("destination-port", ua.Port)
 		}
 	}
 }

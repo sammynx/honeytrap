@@ -39,13 +39,17 @@ import (
 type EthernetFrame struct {
 	Source      net.HardwareAddr
 	Destination net.HardwareAddr
-	Type        uint16
+
+	Type uint16
 
 	Payload []byte
 }
 
 func Parse(data []byte) (*EthernetFrame, error) {
-	eh := &EthernetFrame{}
+	eh := &EthernetFrame{
+		Source:      make([]byte, 6),
+		Destination: make([]byte, 6),
+	}
 	return eh, eh.Unmarshal(data)
 }
 
