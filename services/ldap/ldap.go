@@ -5,10 +5,10 @@ import (
 	"context"
 	"net"
 
+	ber "github.com/asn1-ber"
 	"github.com/honeytrap/honeytrap/event"
 	"github.com/honeytrap/honeytrap/pushers"
 	"github.com/honeytrap/honeytrap/services"
-	ber "github.com/honeytrap/honeytrap/services/asn1-ber"
 	logging "github.com/op/go-logging"
 )
 
@@ -48,14 +48,7 @@ func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 
 	for {
 
-		packet, err := ber.ReadPacket(br)
-		if err != nil {
-			return err
-		}
-
-		// Decode an ASN.1 packet into a Message
-		m, err := NewMessage(packet)
-		if err != nil {
+		if err := c.Read(br); err != nil {
 			return err
 		}
 
@@ -65,20 +58,22 @@ func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 			event.Category("ldap"),
 			event.SourceAddr(conn.RemoteAddr()),
 			event.DestinationAddr(conn.LocalAddr()),
-			event.CopyFrom(m.log),
+			event.CopyFrom(c.msg.log),
 		))
 
 		// Close the connection if unbind is requested
-		if m.protocolOp == ApplicationUnbindRequest || m.protocolOp == ApplicationAbandonRequest {
+		if c.msg.protocolOp == ApplicationUnbindRequest || c.msg.protocolOp == ApplicationAbandonRequest {
 			// Cleanup pending operatons if necessary
 			return nil
 		}
 
 		// Handle request and create a response packet(ASN.1)
-		p, err := m.Response(c.authState)
+		p, err := c.msg.Response(c.authState)
 		if err != nil {
 			return err
 		}
+
+		ber.PrintPacket(p)
 
 		// Write the response
 		if _, err := c.conn.Write(p.Bytes()); err != nil {

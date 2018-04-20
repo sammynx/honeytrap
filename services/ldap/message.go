@@ -1,6 +1,6 @@
 package ldap
 
-import ber "github.com/honeytrap/honeytrap/services/asn1-ber"
+import ber "github.com/asn1-ber"
 
 // LDAP Application Codes
 const (
@@ -90,7 +90,7 @@ var (
 		ber.TagEOC,
 		nil,
 		"EOC")
-	asn1Succes = ber.NewInteger(
+	asn1Success = ber.NewInteger(
 		ber.ClassUniversal,
 		ber.TypePrimitive,
 		ber.TagEnumerated,
@@ -114,12 +114,29 @@ func NewMessage(p *ber.Packet) (*Message, error) {
 		m.log["ldap.operation"] = op
 	}
 
+	err := m.handle(p.Children[1])
+
+	return m, err
+}
+
+func (m *Message) handle(p *ber.Packet) error {
+
 	switch m.protocolOp {
 
 	case ApplicationBindRequest:
-		m.log["ldap.version"] = p.Children[1].Children[0].Value
+		m.log["ldap.version"] = p.Children[0].Value
+		m.log["ldap.user"] = p.Children[1].Data.String()
+		m.log["ldap.password"] = p.Children[2].Data.String()
+
+		authenticate(m.log["ldap.user"].(string), m.log["ldap.password"].(string))
+	case ApplicationSearchRequest:
 	}
-	return m, nil
+	return nil
+}
+
+func authenticate(name, passwd string) (AuthState int) {
+	AuthState = AuthAnonymous
+	return AuthState
 }
 
 // Response returns an ASN.1 BER/DER encoded LDAP response packet
@@ -139,7 +156,15 @@ func (m *Message) Response(authState int) (*ber.Packet, error) {
 	case ApplicationAddRequest:
 		fallthrough
 	case ApplicationSearchRequest:
-		fallthrough
+		searchDone := ber.Encode(
+			ber.ClassApplication,
+			ber.TypeConstructed,
+			ApplicationSearchResultDone,
+			nil,
+			"SearchDone")
+		searchDone.AppendChild(asn1Success)
+		searchDone.AppendChild(asn1Eoc)
+		p.AppendChild(searchDone)
 	case ApplicationModifyRequest:
 		fallthrough
 	case ApplicationDelRequest:
@@ -155,7 +180,7 @@ func (m *Message) Response(authState int) (*ber.Packet, error) {
 		// This is not bulletproof (protocolOp+1 is not always the response code)
 		tag := ber.Tag(m.protocolOp + 1)
 		p := ber.Encode(ber.ClassApplication, ber.TypeConstructed, tag, nil, "Response")
-		p.AppendChild(asn1Succes)
+		p.AppendChild(asn1Success)
 		p.AppendChild(ber.Encode(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, "", ""))
 		p.AppendChild(asn1Eoc)
 	}
