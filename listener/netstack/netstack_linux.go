@@ -38,6 +38,7 @@ import (
 	"fmt"
 	"net"
 
+	"github.com/fatih/color"
 	"github.com/honeytrap/honeytrap/event"
 	"github.com/honeytrap/honeytrap/listener"
 	"github.com/honeytrap/honeytrap/pushers"
@@ -46,6 +47,7 @@ import (
 	"strings"
 
 	"github.com/google/netstack/tcpip"
+	"github.com/google/netstack/tcpip/adapters/gonet"
 	"github.com/google/netstack/tcpip/link/fdbased"
 	"github.com/google/netstack/tcpip/link/rawfile"
 	"github.com/google/netstack/tcpip/link/tun"
@@ -53,7 +55,7 @@ import (
 	"github.com/google/netstack/tcpip/network/ipv6"
 	"github.com/google/netstack/tcpip/stack"
 	"github.com/google/netstack/tcpip/transport/tcp"
-	"github.com/google/netstack/waiter"
+	"github.com/google/netstack/tcpip/transport/udp"
 )
 
 var (
@@ -85,8 +87,8 @@ type netstackListener struct {
 	eb pushers.Channel
 }
 
-func (d *netstackListener) SetChannel(eb pushers.Channel) {
-	d.eb = eb
+func (l *netstackListener) SetChannel(eb pushers.Channel) {
+	l.eb = eb
 }
 
 func New(options ...func(listener.Listener) error) (listener.Listener, error) {
@@ -105,11 +107,11 @@ func New(options ...func(listener.Listener) error) (listener.Listener, error) {
 	return &l, nil
 }
 
-func (nl *netstackListener) Start(ctx context.Context) error {
+func (l *netstackListener) Start(ctx context.Context) error {
 	// Parse the IP address. Support both ipv4 and ipv6.
-	parsedAddr := net.ParseIP(nl.Addr)
+	parsedAddr := net.ParseIP(l.Addr)
 	if parsedAddr == nil {
-		return fmt.Errorf("Bad IP address: %v", nl.Addr)
+		return fmt.Errorf("Bad IP address: %v", l.Addr)
 	}
 
 	var addr tcpip.Address
@@ -121,27 +123,36 @@ func (nl *netstackListener) Start(ctx context.Context) error {
 		addr = tcpip.Address(parsedAddr.To16())
 		proto = ipv6.ProtocolNumber
 	} else {
-		return fmt.Errorf("Unknown IP type: %v", nl.Addr)
+		return fmt.Errorf("Unknown IP type: %v", l.Addr)
 	}
 
 	// Create the stack with ip and tcp protocols, then add a tun-based
 	// NIC and address.
-	s := stack.New([]string{ipv4.ProtocolName, ipv6.ProtocolName}, []string{tcp.ProtocolName})
+	clock := &tcpip.StdClock{}
+	s := stack.New(clock, []string{ipv4.ProtocolName, ipv6.ProtocolName}, []string{tcp.ProtocolName, udp.ProtocolName})
 
 	// todo: only one interface supported now
-	tunName := nl.Interfaces[0]
+	tunName := l.Interfaces[0]
 
 	mtu, err := rawfile.GetMTU(tunName)
 	if err != nil {
 		return err
 	}
 
-	fd, err := tun.Open(tunName)
+	var fd int
+	if false {
+		fd, err = tun.OpenTAP(tunName)
+	} else {
+		fd, err = tun.Open(tunName)
+	}
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	linkID := fdbased.New(fd, mtu, nil)
+	linkID := fdbased.New(&fdbased.Options{
+		FD:  fd,
+		MTU: mtu,
+	})
 	if err := s.CreateNIC(1, linkID); err != nil {
 		return fmt.Errorf(err.String())
 	}
@@ -160,45 +171,64 @@ func (nl *netstackListener) Start(ctx context.Context) error {
 		},
 	})
 
-	for _, address := range nl.Addresses {
-		go func() {
+	for _, address := range l.Addresses {
+		go func(address net.Addr) {
 			if ta, ok := address.(*net.TCPAddr); ok {
-				// Create TCP endpoint, bind it, then start listening.
-				var wq waiter.Queue
-				ep, e := s.NewEndpoint(tcp.ProtocolNumber, proto, &wq)
+				listener, err := gonet.NewListener(s, tcpip.FullAddress{
+					NIC:  0,
+					Addr: tcpip.Address(ta.IP),
+					Port: uint16(ta.Port),
+				}, proto)
 				if err != nil {
-					log.Fatal(e)
+					log.Fatal(err)
 				}
 
-				defer ep.Close()
-
-				if err := ep.Bind(tcpip.FullAddress{0, "", uint16(ta.Port)}, nil); err != nil {
-					log.Fatal("Bind failed: ", err)
-				}
-
-				if err := ep.Listen(10); err != nil {
-					log.Fatal("Listen failed: ", err)
-				}
-
-				// Wait for connections to appear.
-				waitEntry, notifyCh := waiter.NewChannelEntry(nil)
-				wq.EventRegister(&waitEntry, waiter.EventIn)
-				defer wq.EventUnregister(&waitEntry)
+				defer listener.Close()
 
 				for {
-					n, wq, err := ep.Accept()
-					if err == nil {
-					} else if err == tcpip.ErrWouldBlock {
-						<-notifyCh
+					conn, err := listener.Accept()
+					if err != nil {
+						log.Error(err.Error())
 						continue
-					} else {
-						log.Fatal("Accept() failed:", err)
 					}
 
-					nl.ch <- newConn(wq, n)
+					l.ch <- conn
 				}
+			} else if ua, ok := address.(*net.UDPAddr); ok {
+				pc, err := gonet.NewPacketConn(s, tcpip.FullAddress{
+					NIC:  0,
+					Addr: tcpip.Address(ua.IP),
+					Port: uint16(ua.Port),
+				}, proto)
+				if err != nil {
+					fmt.Println(color.RedString("Error starting udp listener: %s", err.Error()))
+					return
+				}
+
+				log.Infof("Listener started: udp/%s", address)
+
+				go func() {
+					for {
+						var buf [65535]byte
+
+						n, raddr, err := pc.ReadFrom(buf[:])
+						if err != nil {
+							log.Error("Error reading udp:", err.Error())
+							continue
+						}
+
+						l.ch <- &listener.DummyUDPConn{
+							Buffer: buf[:n],
+							Laddr:  ua,
+							Raddr:  raddr.(*net.UDPAddr),
+							Fn: func(b []byte, addr *net.UDPAddr) (int, error) {
+								return pc.WriteTo(b, addr)
+							},
+						}
+					}
+				}()
 			}
-		}()
+		}(address)
 
 	}
 	return nil

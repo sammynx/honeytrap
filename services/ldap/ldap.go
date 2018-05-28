@@ -20,7 +20,9 @@ var (
 // LDAP service setup
 func LDAP(options ...services.ServicerFunc) services.Servicer {
 
-	s := &ldapService{}
+	s := &ldapService{
+		Users: [][]string{[]string{"admin", "admin"}},
+	}
 
 	for _, o := range options {
 		if err := o(s); err != nil {
@@ -28,11 +30,17 @@ func LDAP(options ...services.ServicerFunc) services.Servicer {
 		}
 	}
 
+	s.a = NewAuth(s.Users)
+
 	return s
 }
 
 type ldapService struct {
 	c pushers.Channel
+
+	a Authenticator
+
+	Users [][]string `toml:"users"`
 }
 
 func (s *ldapService) SetChannel(c pushers.Channel) {
@@ -44,11 +52,16 @@ func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 
 	br := bufio.NewReader(conn)
 
-	c := NewConn(conn)
+	c := NewConn(conn, s.a)
 
 	for {
 
 		if err := c.Read(br); err != nil {
+			return err
+		}
+
+		m, err := NewMessage(c)
+		if err != nil {
 			return err
 		}
 
@@ -58,17 +71,17 @@ func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 			event.Category("ldap"),
 			event.SourceAddr(conn.RemoteAddr()),
 			event.DestinationAddr(conn.LocalAddr()),
-			event.CopyFrom(c.msg.log),
+			event.CopyFrom(m.log),
 		))
 
 		// Close the connection if unbind is requested
-		if c.msg.protocolOp == ApplicationUnbindRequest || c.msg.protocolOp == ApplicationAbandonRequest {
+		if m.protocolOp == ApplicationUnbindRequest || m.protocolOp == ApplicationAbandonRequest {
 			// Cleanup pending operatons if necessary
 			return nil
 		}
 
 		// Handle request and create a response packet(ASN.1)
-		p, err := c.msg.Response(c.authState)
+		p, err := m.Response(c.authState)
 		if err != nil {
 			return err
 		}

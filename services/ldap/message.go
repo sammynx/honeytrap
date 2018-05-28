@@ -73,6 +73,7 @@ type Message struct {
 	id         int
 	protocolOp int
 	log        map[string]interface{}
+	conn       *Conn
 	control    []Control
 }
 
@@ -99,12 +100,13 @@ var (
 )
 
 // NewMessage creates a new LDAP message
-func NewMessage(p *ber.Packet) (*Message, error) {
+func NewMessage(c *Conn) (*Message, error) {
 
 	m := &Message{
-		id:         int(p.Children[0].Value.(int64)),
-		protocolOp: int(p.Children[1].Tag),
+		id:         int(c.packet.Children[0].Value.(int64)),
+		protocolOp: int(c.packet.Children[1].Tag),
 		log:        make(map[string]interface{}),
+		conn:       c,
 	}
 
 	m.log["ldap.id"] = m.id
@@ -114,7 +116,7 @@ func NewMessage(p *ber.Packet) (*Message, error) {
 		m.log["ldap.operation"] = op
 	}
 
-	err := m.handle(p.Children[1])
+	err := m.handle(c.packet.Children[1])
 
 	return m, err
 }
@@ -128,15 +130,10 @@ func (m *Message) handle(p *ber.Packet) error {
 		m.log["ldap.user"] = p.Children[1].Data.String()
 		m.log["ldap.password"] = p.Children[2].Data.String()
 
-		authenticate(m.log["ldap.user"].(string), m.log["ldap.password"].(string))
+		m.conn.auth.Authenticate(m.log["ldap.user"].(string), m.log["ldap.password"].(string))
 	case ApplicationSearchRequest:
 	}
 	return nil
-}
-
-func authenticate(name, passwd string) (AuthState int) {
-	AuthState = AuthAnonymous
-	return AuthState
 }
 
 // Response returns an ASN.1 BER/DER encoded LDAP response packet

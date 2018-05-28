@@ -113,19 +113,13 @@
   branch = "master"
   name = "github.com/google/netstack"
   packages = ["ilist","sleep","tcpip","tcpip/buffer","tcpip/header","tcpip/link/fdbased","tcpip/link/rawfile","tcpip/link/tun","tcpip/network/fragmentation","tcpip/network/hash","tcpip/network/ipv4","tcpip/network/ipv6","tcpip/ports","tcpip/seqnum","tcpip/stack","tcpip/transport/tcp","tmutex","waiter"]
-  revision = "edcfca33ca347f59a1393986a5d216a5f183ae28"
+  revision = "0f8a5131d0aa6648f0b49e42cf308366e764e7cd"
 
 [[projects]]
   name = "github.com/gorilla/websocket"
   packages = ["."]
   revision = "ea4d1f681babbce9545c9c5f3d5194a789c89f5b"
   version = "v1.2.0"
-
-[[projects]]
-  branch = "v3"
-  name = "github.com/honeytrap/golxc"
-  packages = ["."]
-  revision = "365776ef525bf6740eb39531895cb95f7d3fb2b5"
 
 [[projects]]
   branch = "master"
@@ -138,6 +132,12 @@
   name = "github.com/honeytrap/protocol"
   packages = ["."]
   revision = "b1ce3685e6dbd9d813b76ee47ca2ce08de8aa530"
+
+[[projects]]
+  branch = "v2"
+  name = "github.com/lxc/go-lxc"
+  packages = ["."]
+  revision = "2660c429a942a4a21455765c7046dde612c1baa7"
 
 [[projects]]
   branch = "master"
@@ -243,6 +243,12 @@
 
 [[projects]]
   branch = "master"
+  name = "github.com/streadway/amqp"
+  packages = ["."]
+  revision = "8e4aba63da9fc5571e01c6a45dc809a58cbc5a68"
+
+[[projects]]
+  branch = "master"
   name = "golang.org/x/crypto"
   packages = ["curve25519","ed25519","ed25519/internal/edwards25519","internal/chacha20","poly1305","ssh","ssh/terminal"]
   revision = "8c653846df49742c4c85ec37e5d9f8d3ba657895"
@@ -252,12 +258,6 @@
   name = "golang.org/x/net"
   packages = ["bpf","context","internal/iana","internal/socket","internal/timeseries","ipv4","ipv6","trace"]
   revision = "cbe0f9307d0156177f9dd5dc85da1a31abc5f2fb"
-
-[[projects]]
-  branch = "master"
-  name = "golang.org/x/sync"
-  packages = ["syncmap"]
-  revision = "fd80eb99c8f653c847d294a001bdf2a3a6f768f5"
 
 [[projects]]
   branch = "master"
@@ -286,6 +286,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "c4b72c7a989147e490f1e5e0f5268aabf7cfe16299404267990e9c645d78ce16"
+  inputs-digest = "84bcadc55231be8b0903d73572326915703737b43ef9173b497ffdf0fc292c47"
   solver-name = "gps-cdcl"
   solver-version = 1

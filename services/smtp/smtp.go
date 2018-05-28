@@ -48,7 +48,7 @@ var (
 // SMTP
 func SMTP(options ...services.ServicerFunc) services.Servicer {
 
-	s := &SMTPService{
+	s := &Service{
 		Config: Config{
 			Banner: "SMTPd",
 			srv: &Server{
@@ -63,7 +63,7 @@ func SMTP(options ...services.ServicerFunc) services.Servicer {
 		o(s)
 	}
 
-	if store, err := Storage(); err != nil {
+	if store, err := getStorage(); err != nil {
 		log.Errorf("Could not initialize storage: %s", err.Error())
 	} else {
 
@@ -97,17 +97,17 @@ type Config struct {
 	receiveChan chan Message
 }
 
-type SMTPService struct {
+type Service struct {
 	Config
 
 	ch pushers.Channel
 }
 
-func (s *SMTPService) SetChannel(c pushers.Channel) {
+func (s *Service) SetChannel(c pushers.Channel) {
 	s.ch = c
 }
 
-func (s *SMTPService) Handle(ctx context.Context, conn net.Conn) error {
+func (s *Service) Handle(ctx context.Context, conn net.Conn) error {
 
 	rcvLine := make(chan string)
 
@@ -123,9 +123,9 @@ func (s *SMTPService) Handle(ctx context.Context, conn net.Conn) error {
 					event.Type("email"),
 					event.SourceAddr(conn.RemoteAddr()),
 					event.DestinationAddr(conn.LocalAddr()),
-					event.Custom("smtp.From", message.From),
-					event.Custom("smtp.To", message.To),
-					event.Custom("smtp.Body", message.Body.String()),
+					event.Custom("smtp.from", message.From),
+					event.Custom("smtp.to", message.To),
+					event.Custom("smtp.body", message.Body.String()),
 				))
 			case line := <-rcvLine:
 				s.ch.Send(event.New(
@@ -134,17 +134,14 @@ func (s *SMTPService) Handle(ctx context.Context, conn net.Conn) error {
 					event.Type("input"),
 					event.SourceAddr(conn.RemoteAddr()),
 					event.DestinationAddr(conn.LocalAddr()),
-					event.Custom("smtp.Line", line),
+					event.Custom("smtp.line", line),
 				))
 			}
 		}
 	}()
 
 	//Create new smtp server connection
-	c, err := s.srv.NewConn(conn, rcvLine)
-	if err != nil {
-		return err
-	}
+	c := s.srv.newConn(conn, rcvLine)
 	// Start server loop
 	c.serve()
 	return nil

@@ -40,6 +40,7 @@ import (
 	"net/http"
 
 	"github.com/honeytrap/honeytrap/event"
+	"bytes"
 )
 
 var (
@@ -68,7 +69,7 @@ func (c *Canary) DecodeHTTP(conn net.Conn) error {
 	c.events.Send(event.New(
 		CanaryOptions,
 		EventCategoryHTTP,
-		event.ServiceStarted,
+		event.Protocol("tcp"),
 		event.SourceAddr(conn.RemoteAddr()),
 		event.DestinationAddr(conn.LocalAddr()),
 		event.Custom("http.method", request.Method),
@@ -113,7 +114,7 @@ func (c *Canary) DecodeElasticsearch(conn net.Conn) error {
 	c.events.Send(event.New(
 		CanaryOptions,
 		EventCategoryElasticsearch,
-		event.ServiceStarted,
+		event.Protocol("tcp"),
 		event.SourceAddr(conn.RemoteAddr()),
 		event.DestinationAddr(conn.LocalAddr()),
 		event.Custom("http.method", request.Method),
@@ -160,7 +161,7 @@ func (c *Canary) DecodeHTTPS(conn net.Conn) error {
 	options := []event.Option{
 		CanaryOptions,
 		EventCategoryHTTPS,
-		event.ServiceStarted,
+		event.Protocol("tcp"),
 		event.SourceAddr(conn.RemoteAddr()),
 		event.DestinationAddr(conn.LocalAddr()),
 		event.Payload(buff[:n]),
@@ -236,7 +237,7 @@ func (c *Canary) DecodeMSSQL(conn net.Conn) error {
 	c.events.Send(event.New(
 		CanaryOptions,
 		EventCategoryMSSQL,
-		event.ServiceStarted,
+		event.Protocol("tcp"),
 		event.SourceAddr(conn.RemoteAddr()),
 		event.DestinationAddr(conn.LocalAddr()),
 		event.Payload(buff[:n]),
@@ -261,7 +262,7 @@ func (c *Canary) DecodeTelnet(conn net.Conn) error {
 	c.events.Send(event.New(
 		CanaryOptions,
 		EventCategoryTelnet,
-		event.ServiceStarted,
+		event.Protocol("tcp"),
 		event.SourceAddr(conn.RemoteAddr()),
 		event.DestinationAddr(conn.LocalAddr()),
 		event.Payload(buff[:n]),
@@ -286,7 +287,7 @@ func (c *Canary) DecodeRedis(conn net.Conn) error {
 	c.events.Send(event.New(
 		CanaryOptions,
 		EventCategoryRedis,
-		event.ServiceStarted,
+		event.Protocol("tcp"),
 		event.SourceAddr(conn.RemoteAddr()),
 		event.DestinationAddr(conn.LocalAddr()),
 		event.Payload(buff[:n]),
@@ -311,7 +312,7 @@ func (c *Canary) DecodeRDP(conn net.Conn) error {
 	c.events.Send(event.New(
 		CanaryOptions,
 		EventCategoryRDP,
-		event.ServiceStarted,
+		event.Protocol("tcp"),
 		event.SourceAddr(conn.RemoteAddr()),
 		event.DestinationAddr(conn.LocalAddr()),
 		event.Payload(buff[:n]),
@@ -336,7 +337,7 @@ func (c *Canary) DecodeFTP(conn net.Conn) error {
 	c.events.Send(event.New(
 		CanaryOptions,
 		EventCategoryNBTIP,
-		event.ServiceStarted,
+		event.Protocol("tcp"),
 		event.SourceAddr(conn.RemoteAddr()),
 		event.DestinationAddr(conn.LocalAddr()),
 		event.Payload(buff[:n]),
@@ -361,7 +362,7 @@ func (c *Canary) DecodeNBTIP(conn net.Conn) error {
 	c.events.Send(event.New(
 		CanaryOptions,
 		EventCategoryNBTIP,
-		event.ServiceStarted,
+		event.Protocol("tcp"),
 		event.SourceAddr(conn.RemoteAddr()),
 		event.DestinationAddr(conn.LocalAddr()),
 		event.Payload(buff[:n]),
@@ -381,33 +382,37 @@ func (c *Canary) DecodeSMBIP(conn net.Conn) error {
 
 	buff := make([]byte, 2048)
 	n, _ := conn.Read(buff)
+	r := bytes.NewBuffer(buff)
 
 	options := []event.Option{
 		CanaryOptions,
 		EventCategorySMBIP,
-		event.ServiceStarted,
+		event.Protocol("tcp"),
 		event.SourceAddr(conn.RemoteAddr()),
 		event.DestinationAddr(conn.LocalAddr()),
 		event.Payload(buff[:n]),
 	}
 
-	offset := 0
-	if buff[0] == 0xFE {
+	magicBytes := make([]byte, 4)
+	r.Read(magicBytes)
+	smb2Header := []byte{0xFE, byte('S'), byte('M'), byte('B')}
+	if bytes.Equal(magicBytes, smb2Header) {
 		// https://wiki.wireshark.org/SMB2
 		options = append(options, event.Custom("smb.version", "2"))
 
-		offset++
+		lengthBuf := make([]byte, 2)
+		r.Read(lengthBuf)
+		// length := binary.BigEndian.Uint16(lengthBuf)
+		r.Next(2) // padding
 
-		length := binary.BigEndian.Uint16(buff[offset : offset+2])
-		offset += 4
-		_ = length
-
-		status := binary.BigEndian.Uint16(buff[offset : offset+4])
-		offset += 4
+		statusBuf := make([]byte, 4)
+		r.Read(statusBuf)
+		status := binary.BigEndian.Uint16(statusBuf)
 		options = append(options, event.Custom("smb.status", fmt.Sprintf("%d", status)))
 
-		opcode := binary.BigEndian.Uint16(buff[offset : offset+2])
-		offset += 4
+		opcodeBuf := make([]byte, 2)
+		r.Read(opcodeBuf)
+		opcode := binary.BigEndian.Uint16(opcodeBuf)
 
 		if v, ok := map[uint16]string{
 			0x00: "SMB2/NegotiateProtocol",
