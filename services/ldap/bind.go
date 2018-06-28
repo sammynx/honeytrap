@@ -2,28 +2,44 @@ package ldap
 
 // Handle simple bind requests
 
-import ber "github.com/asn1-ber"
+import (
+	"strings"
 
-// function that checks simple auth credentials (username/password style)
-type BindFunc func(binddn string, bindpw []byte) bool
+	ber "github.com/go-asn1-ber/asn1-ber"
+)
 
-// responds to bind requests
-type BindFuncHandler struct {
-	BindFunc BindFunc
+//bindFunc checks simple auth credentials (username/password style)
+type bindFunc func(binddn string, bindpw []byte) bool
+
+//bindFuncHandler: responds to bind requests
+type bindFuncHandler struct {
+	bindFunc bindFunc
 }
 
-func (h *BindFuncHandler) Handle(p *ber.Packet, el eventLog) []*ber.Packet {
-	reth := &ResultCodeHandler{ReplyTypeId: 1, ResultCode: 49}
+func (h *bindFuncHandler) handle(p *ber.Packet, el eventLog) []*ber.Packet {
+	reth := &resultCodeHandler{replyTypeID: 1, resultCode: 49}
 
 	// check for bind request contents
-	err := CheckPacket(p.Children[1], ber.ClassApplication, ber.TypeConstructed, 0x0)
+	if p == nil || len(p.Children) < 2 {
+		// Package is not meant for us
+		return nil
+	}
+	err := checkPacket(p.Children[1], ber.ClassApplication, ber.TypeConstructed, 0x0)
 	if err != nil {
 		// Package is not meant for us
 		return nil
 	}
 
 	// If we are here we have a bind request
-	el["ldap.request"] = "BIND"
+	el["ldap.request-type"] = "bind"
+
+	version := readVersion(p)
+	el["ldap.version"] = version
+
+	if version < 3 {
+		reth.resultCode = 2 // protocolError
+		return reth.handle(p, el)
+	}
 
 	// make sure we have at least our version number, bind dn and bind password
 	if len(p.Children[1].Children) < 3 {
@@ -33,29 +49,33 @@ func (h *BindFuncHandler) Handle(p *ber.Packet, el eventLog) []*ber.Packet {
 	}
 
 	// the bind DN (the "username")
-	err = CheckPacket(p.Children[1].Children[1], ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString)
+	err = checkPacket(p.Children[1].Children[1], ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString)
 	if err != nil {
 		el["ldap.malformed-payload"] = p.Data.Bytes()
 		log.Debugf("Error verifying packet: %v", err)
 		return nil
 	}
 
-	myBindDn := string(p.Children[1].Children[1].ByteValue)
+	bindDn := string(p.Children[1].Children[1].ByteValue)
 
-	err = CheckPacket(p.Children[1].Children[2], ber.ClassContext, ber.TypePrimitive, 0x0)
+	el["ldap.username"] = bindDn[3:strings.Index(bindDn, ",")]
+
+	err = checkPacket(p.Children[1].Children[2], ber.ClassContext, ber.TypePrimitive, 0x0)
 	if err != nil {
 		el["ldap.malformed-payload"] = p.Data.Bytes()
 		log.Debugf("Error verifying packet: %v", err)
 		return nil
 	}
 
-	myBindPw := p.Children[1].Children[2].Data.Bytes()
+	bindPw := p.Children[1].Children[2].Data.Bytes()
+
+	el["ldap.password"] = string(bindPw)
 
 	// call back to the auth handler
-	if h.BindFunc(myBindDn, myBindPw) {
-		// it worked, result code should be zero
-		reth.ResultCode = 0
+	if h.bindFunc(bindDn, bindPw) {
+		// it worked, result code should be zero for success
+		reth.resultCode = 0
 	}
 
-	return reth.Handle(p, el)
+	return reth.handle(p, el)
 }

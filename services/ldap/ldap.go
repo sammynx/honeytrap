@@ -3,10 +3,10 @@ package ldap
 import (
 	"bufio"
 	"context"
-	"fmt"
 	"net"
+	"strings"
 
-	ber "github.com/asn1-ber"
+	ber "github.com/go-asn1-ber/asn1-ber"
 	"github.com/honeytrap/honeytrap/event"
 	"github.com/honeytrap/honeytrap/pushers"
 	"github.com/honeytrap/honeytrap/services"
@@ -23,9 +23,9 @@ func LDAP(options ...services.ServicerFunc) services.Servicer {
 
 	s := &ldapService{
 		Server: Server{
-			Handlers: make([]RequestHandler, 2),
+			Handlers: make([]requestHandler, 0, 4),
 
-			Users: []User{User{"root", "root"}},
+			Users: []string{"root:root"},
 		},
 	}
 
@@ -48,34 +48,37 @@ type ldapService struct {
 }
 
 type Server struct {
-	Handlers []RequestHandler
+	Handlers []requestHandler
 
-	Users []User
-}
-
-type User struct {
-	name, password string
+	Users []string
 }
 
 type eventLog map[string]interface{}
 
 func (s *ldapService) setHandlers() {
 
-	s.Handlers = append(
-		s.Handlers,
-		&BindFuncHandler{
-			BindFunc: func(binddn string, bindpw []byte) bool {
+	s.Handlers = append(s.Handlers,
+		&bindFuncHandler{
+			bindFunc: func(binddn string, bindpw []byte) bool {
+				name := strings.Split(binddn, ",")[0]
+
+				var cred strings.Builder   // build "name:password" string
+				cred.WriteString(name[3:]) // binddn starts with cn=
+				cred.WriteRune(':')        // separator
+				cred.Write(bindpw)
+
 				for _, u := range s.Users {
-					// binddn starts with cn=
-					if u.name == binddn[3:] && u.password == string(bindpw) {
+					if u == cred.String() {
 						return true
 					}
 				}
 				return false
 			},
-		},
-		&SearchFuncHandler{
-			SearchFunc: func(req *SearchRequest) []*SearchResultEntry {
+		})
+
+	s.Handlers = append(s.Handlers,
+		&searchFuncHandler{
+			searchFunc: func(req *SearchRequest) []*SearchResultEntry {
 
 				ret := make([]*SearchResultEntry, 0, 1)
 
@@ -101,6 +104,9 @@ func (s *ldapService) setHandlers() {
 			},
 		},
 	)
+
+	// CatchAll should be the last handler
+	s.Handlers = append(s.Handlers, &CatchAll{})
 }
 
 func (s *ldapService) SetChannel(c pushers.Channel) {
@@ -109,8 +115,6 @@ func (s *ldapService) SetChannel(c pushers.Channel) {
 }
 
 func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
-
-	elog := make(eventLog, 4)
 
 	br := bufio.NewReader(conn)
 
@@ -121,21 +125,18 @@ func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 			return err
 		}
 
-		version := checkVersion(p)
-		elog["ldap.version"] = version
+		// Storage for events
+		elog := make(eventLog)
 
-		if version != 2 {
-			return fmt.Errorf("Wrong LDAP version: v%d. Required v2.", version)
-		}
-
-		if IsUnbindRequest(p) {
+		if isUnbindRequest(p) {
 			// Close the connection if unbind is requested and cleanup pending operatons if necessary
+			elog["ldap.request-type"] = "unbind"
 			return nil
 		}
 
 		// Handle request and create a response packet(ASN.1 BER)
 		for _, h := range s.Handlers {
-			plist := h.Handle(p, elog)
+			plist := h.handle(p, elog)
 
 			if len(plist) > 0 {
 				for _, part := range plist {
@@ -158,6 +159,4 @@ func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 		))
 
 	}
-
-	return nil
 }

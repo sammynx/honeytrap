@@ -5,14 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"reflect"
 )
-
-// MaxPacketLengthBytes specifies the maximum allowed packet size when calling ReadPacket or DecodePacket. Set to 0 for
-// no limit.
-var MaxPacketLengthBytes int64 = math.MaxInt32
 
 type Packet struct {
 	Identifier
@@ -335,9 +330,6 @@ func readPacket(reader io.Reader) (*Packet, int, error) {
 	}
 
 	// Read definite-length content
-	if MaxPacketLengthBytes > 0 && int64(length) > MaxPacketLengthBytes {
-		return nil, read, fmt.Errorf("length %d greater than maximum %d", length, MaxPacketLengthBytes)
-	}
 	content := make([]byte, length, length)
 	if length > 0 {
 		_, err := io.ReadFull(reader, content)

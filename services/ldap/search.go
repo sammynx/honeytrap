@@ -3,10 +3,15 @@ package ldap
 import (
 	"fmt"
 
-	ber "github.com/asn1-ber"
+	ber "github.com/go-asn1-ber/asn1-ber"
 )
 
-// a simplified ldap search request
+var (
+	ErrNotASearchRequest       = fmt.Errorf("not a search request")
+	ErrSearchRequestTooComplex = fmt.Errorf("search too complex to be parsed")
+)
+
+//Searchrequest a simplified ldap search request
 type SearchRequest struct {
 	Packet       *ber.Packet
 	BaseDN       string // DN under which to start searching
@@ -19,12 +24,7 @@ type SearchRequest struct {
 	FilterValue  string // filter attribute value
 }
 
-var (
-	ErrNotASearchRequest       = fmt.Errorf("not a search request!")
-	ErrSearchRequestTooComplex = fmt.Errorf("search too complex to be parsed!")
-)
-
-func ParseSearchRequest(p *ber.Packet) (*SearchRequest, error) {
+func parseSearchRequest(p *ber.Packet, el eventLog) (*SearchRequest, error) {
 
 	ret := &SearchRequest{}
 
@@ -32,7 +32,7 @@ func ParseSearchRequest(p *ber.Packet) (*SearchRequest, error) {
 		return nil, ErrNotASearchRequest
 	}
 
-	err := CheckPacket(p.Children[1], ber.ClassApplication, ber.TypeConstructed, 0x3)
+	err := checkPacket(p.Children[1], ber.ClassApplication, ber.TypeConstructed, 0x3)
 	if err != nil {
 		return nil, ErrNotASearchRequest
 	}
@@ -40,14 +40,14 @@ func ParseSearchRequest(p *ber.Packet) (*SearchRequest, error) {
 	rps := p.Children[1].Children
 
 	ret.BaseDN = string(rps[0].ByteValue)
-	ret.Scope = ForceInt64(rps[1].Value)
-	ret.DerefAliases = ForceInt64(rps[2].Value)
-	ret.SizeLimit = ForceInt64(rps[3].Value)
-	ret.TimeLimit = ForceInt64(rps[4].Value)
+	ret.Scope = forceInt64(rps[1].Value)
+	ret.DerefAliases = forceInt64(rps[2].Value)
+	ret.SizeLimit = forceInt64(rps[3].Value)
+	ret.TimeLimit = forceInt64(rps[4].Value)
 	ret.TypesOnly = rps[5].Value.(bool)
 
 	// Check to see if it looks like a simple search criteria
-	err = CheckPacket(rps[6], ber.ClassContext, ber.TypeConstructed, 0x3)
+	err = checkPacket(rps[6], ber.ClassContext, ber.TypeConstructed, 0x3)
 	if err == nil {
 		// It is simple, return the attribute and value
 		ret.FilterAttr = string(rps[6].Children[0].ByteValue)
@@ -55,7 +55,6 @@ func ParseSearchRequest(p *ber.Packet) (*SearchRequest, error) {
 	} else {
 		// This is likely some sort of complex search criteria.
 		// Try to generate a searchFingerPrint based on the values
-		// You will have to understand this fingerprint in your code
 		var getContextValue func(p *ber.Packet) string
 		getContextValue = func(p *ber.Packet) string {
 			ret := ""
@@ -88,24 +87,25 @@ func ParseSearchRequest(p *ber.Packet) (*SearchRequest, error) {
 
 	}
 
-	return ret, nil
+	el["ldap.search.basedn"] = ret.BaseDN
+	el["ldap.search.filter"] = ret.FilterAttr
+	el["ldap.search.filtervalue"] = ret.FilterValue
 
+	return ret, nil
 }
 
-// a simplified ldap search response
+//SearchResultEntry a simplified ldap search response
 type SearchResultEntry struct {
 	DN    string                 // DN of this search result
 	Attrs map[string]interface{} // map of attributes
 }
 
-func (e *SearchResultEntry) MakePacket(msgid int64) *ber.Packet {
-
-	messageId := msgid
+func (e *SearchResultEntry) makePacket(msgid int64) *ber.Packet {
 
 	replypacket := ber.Encode(
 		ber.ClassUniversal, ber.TypeConstructed, ber.TagSequence, nil, "LDAP Response")
 	replypacket.AppendChild(
-		ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagInteger, messageId, "MessageId"))
+		ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagInteger, msgid, "MessageId"))
 	searchResult := ber.Encode(
 		ber.ClassApplication, ber.TypeConstructed, ber.Tag(4), nil, "Response")
 	searchResult.AppendChild(
@@ -149,14 +149,12 @@ func (e *SearchResultEntry) MakePacket(msgid int64) *ber.Packet {
 
 }
 
-func MakeSearchResultDonePacket(msgid int64) *ber.Packet {
-
-	messageID := msgid
+func makeSearchResultDonePacket(msgid int64) *ber.Packet {
 
 	replypacket := ber.Encode(
 		ber.ClassUniversal, ber.TypeConstructed, ber.TagSequence, nil, "LDAP Response")
 	replypacket.AppendChild(
-		ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagInteger, messageID, "MessageId"))
+		ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagInteger, msgid, "MessageId"))
 	searchResult := ber.Encode(
 		ber.ClassApplication, ber.TypeConstructed, ber.Tag(5), nil, "Response")
 	searchResult.AppendChild(
@@ -172,7 +170,7 @@ func MakeSearchResultDonePacket(msgid int64) *ber.Packet {
 
 }
 
-func MakeSearchResultNoSuchObjectPacket(msgid int64) *ber.Packet {
+func makeSearchResultNoSuchObjectPacket(msgid int64) *ber.Packet {
 
 	messageID := msgid
 
@@ -199,18 +197,19 @@ func MakeSearchResultNoSuchObjectPacket(msgid int64) *ber.Packet {
 // a callback function to produce search results; should return nil to mean
 // we chose not to attempt to search (i.e. this request is not for us);
 // or return empty slice to mean 0 results (or slice with data for results)
-type SearchFunc func(*SearchRequest) []*SearchResultEntry
+type searchFunc func(*SearchRequest) []*SearchResultEntry
 
-type SearchFuncHandler struct {
-	SearchFunc SearchFunc
+type searchFuncHandler struct {
+	searchFunc searchFunc
 }
 
-func (h *SearchFuncHandler) Handle(p *ber.Packet, el eventLog) []*ber.Packet {
+func (h *searchFuncHandler) handle(p *ber.Packet, el eventLog) []*ber.Packet {
 
-	req, err := ParseSearchRequest(p)
+	req, err := parseSearchRequest(p, el)
 	if err == ErrNotASearchRequest {
 		return nil
 	} else if err == ErrSearchRequestTooComplex {
+		el["ldap.request-type"] = "search"
 		log.Debugf("Search request too complex, skipping")
 		return nil
 	} else if err != nil {
@@ -218,8 +217,9 @@ func (h *SearchFuncHandler) Handle(p *ber.Packet, el eventLog) []*ber.Packet {
 		return nil
 	}
 
-	res := h.SearchFunc(req)
+	el["ldap.request-type"] = "search"
 
+	res := h.searchFunc(req)
 	// the function is telling us it is opting not to process this search request
 	if res == nil {
 		return nil
@@ -233,21 +233,18 @@ func (h *SearchFuncHandler) Handle(p *ber.Packet, el eventLog) []*ber.Packet {
 
 	// no results
 	if len(res) < 1 {
-		return []*ber.Packet{MakeSearchResultNoSuchObjectPacket(msgid)}
+		return []*ber.Packet{makeSearchResultNoSuchObjectPacket(msgid)}
 	}
 
 	// format each result
 	ret := make([]*ber.Packet, 0)
 	for _, resitem := range res {
-		resultPacket := resitem.MakePacket(msgid)
-		// fmt.Printf("--------------------\n")
-		// ber.PrintPacket(resultPacket)
+		resultPacket := resitem.makePacket(msgid)
 		ret = append(ret, resultPacket)
 	}
 
 	// end with a done packet
-	ret = append(ret, MakeSearchResultDonePacket(msgid))
+	ret = append(ret, makeSearchResultDonePacket(msgid))
 
 	return ret
-
 }
