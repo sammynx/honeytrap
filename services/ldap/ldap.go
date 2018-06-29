@@ -47,6 +47,7 @@ type ldapService struct {
 	c pushers.Channel
 }
 
+//Server ldap server data
 type Server struct {
 	Handlers []requestHandler
 
@@ -61,10 +62,14 @@ func (s *ldapService) setHandlers() {
 		&bindFuncHandler{
 			bindFunc: func(binddn string, bindpw []byte) bool {
 
-				var cred strings.Builder // build "name:password" string
-				cred.WriteString(binddn) // binddn starts with cn=
-				cred.WriteRune(':')      // separator
-				cred.Write(bindpw)
+				var cred strings.Builder           // build "name:password" string
+				_, err := cred.WriteString(binddn) // binddn starts with cn=
+				_, err = cred.WriteRune(':')       // separator
+				_, err = cred.Write(bindpw)
+				if err != nil {
+					log.Debug("ldap.bind: couldn't construct bind name")
+					return false
+				}
 
 				for _, u := range s.Users {
 					if u == cred.String() {

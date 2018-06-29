@@ -7,11 +7,14 @@ import (
 )
 
 var (
-	ErrNotASearchRequest       = fmt.Errorf("not a search request")
+	//ErrNotASearchRequest error if it is not a search request
+	ErrNotASearchRequest = fmt.Errorf("not a search request")
+
+	//ErrSearchRequestTooComplex error if the search request is to complex
 	ErrSearchRequestTooComplex = fmt.Errorf("search too complex to be parsed")
 )
 
-//Searchrequest a simplified ldap search request
+//SearchRequest a simplified ldap search request
 type SearchRequest struct {
 	Packet       *ber.Packet
 	BaseDN       string // DN under which to start searching
