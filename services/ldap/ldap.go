@@ -60,11 +60,10 @@ func (s *ldapService) setHandlers() {
 	s.Handlers = append(s.Handlers,
 		&bindFuncHandler{
 			bindFunc: func(binddn string, bindpw []byte) bool {
-				name := strings.Split(binddn, ",")[0]
 
-				var cred strings.Builder   // build "name:password" string
-				cred.WriteString(name[3:]) // binddn starts with cn=
-				cred.WriteRune(':')        // separator
+				var cred strings.Builder // build "name:password" string
+				cred.WriteString(binddn) // binddn starts with cn=
+				cred.WriteRune(':')      // separator
 				cred.Write(bindpw)
 
 				for _, u := range s.Users {

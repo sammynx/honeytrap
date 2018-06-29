@@ -56,9 +56,14 @@ func (h *bindFuncHandler) handle(p *ber.Packet, el eventLog) []*ber.Packet {
 		return nil
 	}
 
-	bindDn := string(p.Children[1].Children[1].ByteValue)
+	bindDn := strings.TrimPrefix(string(p.Children[1].Children[1].ByteValue), "cn=")
+	log.Debugf("ldap name: %s", bindDn)
+	if index := strings.Index(bindDn, ","); index > -1 {
+		bindDn = bindDn[:index]
+	}
 
-	el["ldap.username"] = bindDn[3:strings.Index(bindDn, ",")]
+	log.Debugf("ldap name: %s", bindDn)
+	el["ldap.username"] = bindDn
 
 	err = checkPacket(p.Children[1].Children[2], ber.ClassContext, ber.TypePrimitive, 0x0)
 	if err != nil {
