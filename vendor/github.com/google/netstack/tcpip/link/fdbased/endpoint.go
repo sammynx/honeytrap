@@ -61,6 +61,16 @@ type Options struct {
 	Address         tcpip.LinkAddress
 }
 
+// Options specify the details about the fd-based endpoint to be created.
+type Options struct {
+	FD              int
+	MTU             uint32
+	EthernetHeader  bool
+	ChecksumOffload bool
+	ClosedFunc      func(*tcpip.Error)
+	Address         tcpip.LinkAddress
+}
+
 // New creates a new fd-based endpoint.
 //
 // Makes fd non-blocking, but does not take ownership of fd, which must remain

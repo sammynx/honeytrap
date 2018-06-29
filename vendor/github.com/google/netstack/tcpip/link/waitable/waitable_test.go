@@ -34,11 +34,14 @@ func (e *countedEndpoint) Attach(dispatcher stack.NetworkDispatcher) {
 	e.dispatcher = dispatcher
 }
 
+<<<<<<< HEAD
 // IsAttached implements stack.LinkEndpoint.IsAttached.
 func (e *countedEndpoint) IsAttached() bool {
 	return e.dispatcher != nil
 }
 
+=======
+>>>>>>> 92a37221429468dd94f51d6e25be048cd7d5ece6
 func (e *countedEndpoint) MTU() uint32 {
 	return e.mtu
 }
