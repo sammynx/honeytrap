@@ -22,15 +22,30 @@ var (
 // LDAP service setup
 func LDAP(options ...services.ServicerFunc) services.Servicer {
 
+	store, err := getStorage()
+	if err != nil {
+		log.Errorf("FTP: Could not initialize storage. %s", err.Error())
+	}
+
+	cert, err := store.Certificate()
+	if err != nil {
+		log.Errorf("TLS error: %s", err.Error())
+	}
+
 	s := &ldapService{
 		Server: Server{
 			Handlers: make([]requestHandler, 0, 4),
 
 			Users: []string{"root:root"},
+
+			tlsConf: &tls.Config{
+				Certificates:       []tls.Certificate{*cert},
+				InsecureSkipVerify: true,
+			},
 		},
 	}
 
-	// Set requestHandlers
+	// Set request handlers
 	s.setHandlers()
 
 	for _, o := range options {
@@ -54,7 +69,7 @@ type Server struct {
 
 	Users []string
 
-	conn    net.Conn
+	conn    *Conn
 	tlsConf *tls.Config
 }
 
@@ -64,8 +79,15 @@ func (s *ldapService) setHandlers() {
 
 	s.Handlers = append(s.Handlers,
 		&tlsFuncHandler{
-			tlsFunc: func() (net.Conn, *tls.Config) {
-				return s.conn, s.tlsConf
+			tlsFunc: func() error {
+				tlsConn := tls.Server(s.conn.conn, s.tlsConf)
+				err := tlsConn.Handshake()
+				if err == nil {
+					s.conn.conn = tlsConn
+					s.conn.ConnReader = bufio.NewReader(tlsConn)
+					s.conn.ConnWriter = bufio.NewWriter(tlsConn)
+				}
+				return err
 			},
 		})
 
@@ -130,13 +152,12 @@ func (s *ldapService) SetChannel(c pushers.Channel) {
 }
 
 func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
-	s.conn = conn
 
-	br := bufio.NewReader(conn)
+	c := NewConn(conn)
 
 	for {
 
-		p, err := ber.ReadPacket(br)
+		p, err := ber.ReadPacket(c.ConnReader)
 		if err != nil {
 			return err
 		}
@@ -158,7 +179,7 @@ func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 
 			if len(plist) > 0 {
 				for _, part := range plist {
-					if _, err := conn.Write(part.Bytes()); err != nil {
+					if _, err := c.ConnWriter.Write(part.Bytes()); err != nil {
 						return err
 					}
 				}
