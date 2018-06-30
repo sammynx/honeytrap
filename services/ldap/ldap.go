@@ -3,6 +3,7 @@ package ldap
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"net"
 	"strings"
 
@@ -52,11 +53,21 @@ type Server struct {
 	Handlers []requestHandler
 
 	Users []string
+
+	conn    net.Conn
+	tlsConf *tls.Config
 }
 
 type eventLog map[string]interface{}
 
 func (s *ldapService) setHandlers() {
+
+	s.Handlers = append(s.Handlers,
+		&tlsFuncHandler{
+			tlsFunc: func() (net.Conn, *tls.Config) {
+				return s.conn, s.tlsConf
+			},
+		})
 
 	s.Handlers = append(s.Handlers,
 		&bindFuncHandler{
@@ -119,6 +130,7 @@ func (s *ldapService) SetChannel(c pushers.Channel) {
 }
 
 func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
+	s.conn = conn
 
 	br := bufio.NewReader(conn)
 
@@ -128,6 +140,8 @@ func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 		if err != nil {
 			return err
 		}
+
+		ber.PrintPacket(p)
 
 		// Storage for events
 		elog := make(eventLog)
