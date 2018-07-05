@@ -87,8 +87,10 @@ func parseSearchRequest(p *ber.Packet, el eventLog) (*SearchRequest, error) {
 	err = checkPacket(rps[6], ber.ClassContext, ber.TypeConstructed, 0x3)
 	if err == nil {
 		// It is simple, return the attribute and value
-		ret.FilterAttr = string(rps[6].Children[0].ByteValue)
-		ret.FilterValue = string(rps[6].Children[1].ByteValue)
+		if len(rps) > 6 {
+			ret.FilterAttr = string(rps[6].Children[0].ByteValue)
+			ret.FilterValue = string(rps[6].Children[1].ByteValue)
+		}
 	} else {
 		// This is likely some sort of complex search criteria.
 		// Try to generate a searchFingerPrint based on the values

@@ -57,6 +57,11 @@ services=[ "ldap" ]
 port="udp/389"
 services=[ "ldap" ]
 
+#LDAPS
+[[port]]
+port="tcp/636"
+services=["ldap"]
+
 */
 
 var (
@@ -184,6 +189,10 @@ func (s *ldapService) SetChannel(c pushers.Channel) {
 func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 
 	s.anon = true // start with anonymous authstate
+
+	// check port 636 for tls connection
+	if conn.LocalAddr().(*net.TCPAddr).Port == 636 {
+	}
 
 	br := bufio.NewReader(conn)
 
