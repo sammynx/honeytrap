@@ -130,8 +130,8 @@
 [[projects]]
   branch = "master"
   name = "github.com/google/netstack"
-  packages = ["ilist","rand","sleep","tcpip","tcpip/adapters/gonet","tcpip/buffer","tcpip/header","tcpip/link/fdbased","tcpip/link/rawfile","tcpip/link/sniffer","tcpip/network/fragmentation","tcpip/network/hash","tcpip/network/ipv4","tcpip/network/ipv6","tcpip/ports","tcpip/seqnum","tcpip/stack","tcpip/transport/tcp","tcpip/transport/udp","tmutex","waiter"]
-  revision = "c0f57501d9567f2b3325e5a21263259164100766"
+  packages = ["ilist","rand","sleep","tcpip","tcpip/adapters/gonet","tcpip/buffer","tcpip/header","tcpip/link/fdbased","tcpip/link/rawfile","tcpip/link/sniffer","tcpip/link/tun","tcpip/network/fragmentation","tcpip/network/hash","tcpip/network/ipv4","tcpip/network/ipv6","tcpip/ports","tcpip/seqnum","tcpip/stack","tcpip/transport/tcp","tcpip/transport/udp","tmutex","waiter"]
+  revision = "0f7ffd73c70e651a4aee318e3abcda1f855557bb"
   source = "github.com/honeytrap/netstack"
 
 [[projects]]
@@ -347,6 +347,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "fcd37204b9530443b25b05c25a4b7a4e42aba9e191ac87514c8add24ea768545"
+  inputs-digest = "d194de43353ce95a839866c3ca0ddfedc38fc140963df80d74914cb81e48a3fa"
   solver-name = "gps-cdcl"
   solver-version = 1
