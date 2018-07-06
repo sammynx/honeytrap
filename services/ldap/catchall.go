@@ -97,15 +97,12 @@ func (c *CatchAll) handle(p *ber.Packet, el eventLog) []*ber.Packet {
 	case AppAbandonRequest:
 		el["ldap.request-type"] = "abandon"
 		return nil // This needs no answer
-	case AppSearchResultReference:
-		el["ldap.request-type"] = "search-result-reference"
 	case AppExtendedRequest:
 		el["ldap.request-type"] = "extended"
 		reth.replyTypeID = AppExtendedResponse
 	default:
 		el["ldap.request-type"] = opcode
-		reth.resultCode = 2 // protocol error
+		reth.replyTypeID = 1 // protocolError
 	}
-
 	return reth.handle(p, el)
 }

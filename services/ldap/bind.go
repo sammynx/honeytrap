@@ -36,6 +36,7 @@ import (
 	"strings"
 
 	ber "github.com/go-asn1-ber/asn1-ber"
+	"github.com/lunny/log"
 )
 
 //bindFunc checks simple auth credentials (username/password style)
@@ -47,14 +48,14 @@ type bindFuncHandler struct {
 }
 
 func (h *bindFuncHandler) handle(p *ber.Packet, el eventLog) []*ber.Packet {
-	reth := &resultCodeHandler{replyTypeID: 1, resultCode: 49}
+	reth := &resultCodeHandler{replyTypeID: AppBindResponse, resultCode: ResInvalidCred}
 
 	// check for bind request contents
 	if p == nil || len(p.Children) < 2 {
 		// Package is not meant for us
 		return nil
 	}
-	err := checkPacket(p.Children[1], ber.ClassApplication, ber.TypeConstructed, 0x0)
+	err := checkPacket(p.Children[1], ber.ClassApplication, ber.TypeConstructed, AppBindRequest)
 	if err != nil {
 		// Package is not meant for us
 		return nil
@@ -92,6 +93,7 @@ func (h *bindFuncHandler) handle(p *ber.Packet, el eventLog) []*ber.Packet {
 		bindDn = bindDn[:index]
 	}
 
+	log.Debugf("ldap name: %s", bindDn)
 	el["ldap.username"] = bindDn
 
 	err = checkPacket(p.Children[1].Children[2], ber.ClassContext, ber.TypePrimitive, 0x0)
@@ -108,7 +110,7 @@ func (h *bindFuncHandler) handle(p *ber.Packet, el eventLog) []*ber.Packet {
 	// call back to the auth handler
 	if h.bindFunc(bindDn, bindPw) {
 		// it worked, result code should be zero for success
-		reth.resultCode = 0
+		reth.resultCode = ResSuccess
 	}
 
 	return reth.handle(p, el)

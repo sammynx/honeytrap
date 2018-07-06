@@ -33,6 +33,7 @@ package ldap
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"net"
 	"strings"
 
@@ -72,15 +73,30 @@ var (
 // LDAP service setup
 func LDAP(options ...services.ServicerFunc) services.Servicer {
 
+	store, err := getStorage()
+	if err != nil {
+		log.Errorf("FTP: Could not initialize storage. %s", err.Error())
+	}
+
+	cert, err := store.Certificate()
+	if err != nil {
+		log.Errorf("TLS error: %s", err.Error())
+	}
+
 	s := &ldapService{
 		Server: Server{
-			Handlers:    make([]requestHandler, 0, 4),
-			Credentials: []string{"root:root"},
-			anon:        true,
+			Handlers: make([]requestHandler, 0, 4),
+
+			Users: []string{"root:root"},
+
+			tlsConf: &tls.Config{
+				Certificates:       []tls.Certificate{*cert},
+				InsecureSkipVerify: true,
+			},
 		},
 	}
 
-	// Set requestHandlers
+	// Set request handlers
 	s.setHandlers()
 
 	for _, o := range options {
@@ -112,17 +128,26 @@ type eventLog map[string]interface{}
 func (s *ldapService) setHandlers() {
 
 	s.Handlers = append(s.Handlers,
+		&tlsFuncHandler{
+			tlsFunc: func() error {
+				tlsConn := tls.Server(s.conn.conn, s.tlsConf)
+				err := tlsConn.Handshake()
+				if err == nil {
+					s.conn.conn = tlsConn
+					s.conn.ConnReader = bufio.NewReader(tlsConn)
+					s.conn.ConnWriter = bufio.NewWriter(tlsConn)
+				}
+				return err
+			},
+		})
+
+	s.Handlers = append(s.Handlers,
 		&bindFuncHandler{
 			bindFunc: func(binddn string, bindpw []byte) bool {
 
-				// check for anonymous authentication
-				if binddn == "" {
-					s.anon = true // set the anonymous auth flag
-					return true
-				}
-				var cred strings.Builder // build "name:password" string
-				_, err := cred.WriteString(binddn)
-				_, err = cred.WriteRune(':') // separator
+				var cred strings.Builder           // build "name:password" string
+				_, err := cred.WriteString(binddn) // binddn starts with cn=
+				_, err = cred.WriteRune(':')       // separator
 				_, err = cred.Write(bindpw)
 				if err != nil {
 					log.Debug("ldap.bind: couldn't construct bind name")
@@ -173,12 +198,7 @@ func (s *ldapService) setHandlers() {
 	)
 
 	// CatchAll should be the last handler
-	s.Handlers = append(s.Handlers,
-		&CatchAll{
-			catchallFunc: func() bool {
-				return s.anon
-			},
-		})
+	s.Handlers = append(s.Handlers, &CatchAll{})
 }
 
 func (s *ldapService) SetChannel(c pushers.Channel) {
@@ -188,17 +208,11 @@ func (s *ldapService) SetChannel(c pushers.Channel) {
 
 func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 
-	s.anon = true // start with anonymous authstate
-
-	// check port 636 for tls connection
-	if conn.LocalAddr().(*net.TCPAddr).Port == 636 {
-	}
-
-	br := bufio.NewReader(conn)
+	c := NewConn(conn)
 
 	for {
 
-		p, err := ber.ReadPacket(br)
+		p, err := ber.ReadPacket(c.ConnReader)
 		if err != nil {
 			return err
 		}
@@ -236,7 +250,7 @@ func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 
 			if len(plist) > 0 {
 				for _, part := range plist {
-					if _, err := conn.Write(part.Bytes()); err != nil {
+					if _, err := c.ConnWriter.Write(part.Bytes()); err != nil {
 						return err
 					}
 				}
