@@ -32,6 +32,7 @@ package ldap
 
 import ber "github.com/go-asn1-ber/asn1-ber"
 
+/*
 // LDAP App Codes
 const (
 	AppBindRequest           = 0
@@ -55,6 +56,7 @@ const (
 	AppExtendedRequest       = 23
 	AppExtendedResponse      = 24
 )
+*/
 
 // Used to return anonymous authstate
 type catchallFunc func() bool
