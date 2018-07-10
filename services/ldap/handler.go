@@ -35,7 +35,6 @@ import (
 	"fmt"
 
 	ber "github.com/go-asn1-ber/asn1-ber"
-	"github.com/lunny/log"
 )
 
 const (
@@ -73,8 +72,10 @@ type requestHandler interface {
 }
 
 type resultCodeHandler struct {
-	replyTypeID int64 // the overall type of the response, e.g. 1 is BindResponse
-	resultCode  int64 // the result code, i.e. 0 is success, 49 is invalid credentials, etc.
+	replyTypeID   int64 // the overall type of the response, e.g. 1 is BindResponse
+	resultCode    int64 // the result code, i.e. 0 is success, 49 is invalid credentials, etc.
+	matchedDN     string
+	diagnosticMsg string
 }
 
 //Handle: the message envelope
@@ -93,9 +94,9 @@ func (h *resultCodeHandler) handle(p *ber.Packet, el eventLog) []*ber.Packet {
 		ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagEnumerated, h.resultCode, "Result Code"))
 	// per the spec these are "matchedDN" and "diagnosticMessage", but we don't need them for this
 	bindResult.AppendChild(
-		ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, "", "Unused"))
+		ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, h.matchedDN, "matched DN"))
 	bindResult.AppendChild(
-		ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, "", "Unused"))
+		ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, h.diagnosticMsg, "Diagnostic message"))
 
 	reply.AppendChild(bindResult)
 

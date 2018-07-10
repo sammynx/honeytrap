@@ -31,9 +31,9 @@
 package ldap
 
 import (
-	"bufio"
 	"context"
 	"crypto/tls"
+	"errors"
 	"net"
 	"strings"
 
@@ -75,24 +75,24 @@ func LDAP(options ...services.ServicerFunc) services.Servicer {
 
 	store, err := getStorage()
 	if err != nil {
-		log.Errorf("FTP: Could not initialize storage. %s", err.Error())
+		log.Errorf("LDAP: Could not initialize storage. %s", err.Error())
 	}
 
 	cert, err := store.Certificate()
 	if err != nil {
-		log.Errorf("TLS error: %s", err.Error())
+		log.Errorf("TLS: %s", err.Error())
 	}
 
 	s := &ldapService{
 		Server: Server{
 			Handlers: make([]requestHandler, 0, 4),
 
-			Users: []string{"root:root"},
+			Credentials: []string{"root:root"},
+		},
 
-			tlsConf: &tls.Config{
-				Certificates:       []tls.Certificate{*cert},
-				InsecureSkipVerify: true,
-			},
+		tlsConfig: &tls.Config{
+			Certificates:       []tls.Certificate{*cert},
+			InsecureSkipVerify: true,
 		},
 	}
 
@@ -111,7 +111,11 @@ func LDAP(options ...services.ServicerFunc) services.Servicer {
 type ldapService struct {
 	Server
 
+	*Conn
+
 	c pushers.Channel
+
+	tlsConfig *tls.Config
 }
 
 //Server ldap server data
@@ -128,16 +132,24 @@ type eventLog map[string]interface{}
 func (s *ldapService) setHandlers() {
 
 	s.Handlers = append(s.Handlers,
-		&tlsFuncHandler{
-			tlsFunc: func() error {
-				tlsConn := tls.Server(s.conn.conn, s.tlsConf)
-				err := tlsConn.Handshake()
-				if err == nil {
-					s.conn.conn = tlsConn
-					s.conn.ConnReader = bufio.NewReader(tlsConn)
-					s.conn.ConnWriter = bufio.NewWriter(tlsConn)
+		&extFuncHandler{
+			extFunc: func() error {
+				if s.tlsConf != nil {
+					tlsConn := tls.Server(s.con, s.tlsConf)
+
+					log.Debugf("connectionstate in handler: %v", tlsConn.ConnectionState)
+
+					if err := tlsConn.Handshake(); err != nil {
+						log.Debugf("TLS error: %s", err)
+						return err
+					}
+
+					s.Conn = NewConn(tlsConn)
+
+					return nil
 				}
-				return err
+
+				return errors.New("services/ldap: TLS not available")
 			},
 		})
 
@@ -198,7 +210,13 @@ func (s *ldapService) setHandlers() {
 	)
 
 	// CatchAll should be the last handler
-	s.Handlers = append(s.Handlers, &CatchAll{})
+	s.Handlers = append(s.Handlers,
+		&CatchAll{
+			catchallFunc: func() bool {
+				return s.anon
+			},
+		},
+	)
 }
 
 func (s *ldapService) SetChannel(c pushers.Channel) {
@@ -208,14 +226,16 @@ func (s *ldapService) SetChannel(c pushers.Channel) {
 
 func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 
-	c := NewConn(conn)
+	s.Conn = NewConn(conn)
 
 	for {
 
-		p, err := ber.ReadPacket(c.ConnReader)
+		p, err := ber.ReadPacket(s.ConnReader)
 		if err != nil {
 			return err
 		}
+
+		ber.PrintPacket(p)
 
 		// check if packet is readable
 		id, err := messageID(p)
@@ -250,14 +270,17 @@ func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 
 			if len(plist) > 0 {
 				for _, part := range plist {
-					if _, err := c.ConnWriter.Write(part.Bytes()); err != nil {
+					_, err := s.con.Write(part.Bytes())
+					if err != nil {
 						return err
 					}
 				}
-				// Handled the request, break out of the handling loop
+				// request is handled
 				break
 			}
 		}
+
+		//log.Debugf("connectionstate ldap.go: %v", s.conn.ConnectionState)
 
 		// Send Message Data
 		s.c.Send(event.New(
@@ -269,4 +292,5 @@ func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 		))
 
 	}
+	return nil
 }

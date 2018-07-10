@@ -36,7 +36,6 @@ import (
 	"strings"
 
 	ber "github.com/go-asn1-ber/asn1-ber"
-	"github.com/lunny/log"
 )
 
 //bindFunc checks simple auth credentials (username/password style)
@@ -94,6 +93,7 @@ func (h *bindFuncHandler) handle(p *ber.Packet, el eventLog) []*ber.Packet {
 	}
 
 	log.Debugf("ldap name: %s", bindDn)
+
 	el["ldap.username"] = bindDn
 
 	err = checkPacket(p.Children[1].Children[2], ber.ClassContext, ber.TypePrimitive, 0x0)

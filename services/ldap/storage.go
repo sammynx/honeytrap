@@ -14,13 +14,13 @@ import (
 )
 
 func getStorage() (*ldapStorage, error) {
+
 	s, err := storage.Namespace("ldap")
 	if err != nil {
 		return nil, err
 	}
-	return &ldapStorage{
-		s,
-	}, nil
+
+	return &ldapStorage{s}, nil
 }
 
 type ldapStorage struct {
@@ -102,9 +102,9 @@ func generateCert(pempriv []byte) ([]byte, error) {
 		NotAfter:              time.Now().AddDate(1, 0, 0),
 		SubjectKeyId:          []byte{},
 		BasicConstraintsValid: true,
-		//IsCA:        false,
-		//ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		//KeyUsage:    x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		IsCA:        false,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		KeyUsage:    x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
 	}
 
 	block, _ := pem.Decode(pempriv)

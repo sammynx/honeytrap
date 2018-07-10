@@ -1,5 +1,4 @@
-/*
-* Honeytrap
+/* * Honeytrap
 * Copyright (C) 2016-2018 DutchSec (https://dutchsec.com/)
 *
 * This program is free software; you can redistribute it and/or modify it under
@@ -30,61 +29,73 @@
  */
 package ldap
 
-import ber "github.com/go-asn1-ber/asn1-ber"
+import (
+	"fmt"
 
-// Used to return anonymous authstate
-type catchallFunc func() bool
+	ber "github.com/go-asn1-ber/asn1-ber"
+)
 
-//CatchAll handles the not implemented LDAP requests
-type CatchAll struct {
-	catchallFunc catchallFunc
+type extFunc func() error
+
+type extFuncHandler struct {
+	extFunc extFunc
 }
 
-func (c *CatchAll) handle(p *ber.Packet, el eventLog) []*ber.Packet {
+var tlsOID = "1.3.6.1.4.1.1466.20037"
 
-	if p == nil {
+func (e *extFuncHandler) handle(p *ber.Packet, el eventLog) []*ber.Packet {
+	reth := &resultCodeHandler{replyTypeID: AppExtendedResponse, resultCode: ResProtocolError}
+
+	log.Debug("Start extFuncHandler...")
+
+	// too small to be an extended request
+	if p == nil || len(p.Children) < 2 {
 		return nil
 	}
 
-	el["ldap.payload"] = p.Bytes()
-
-	if len(p.Children) < 2 {
-		// bad request
+	// check if package is an extended request
+	err := checkPacket(p.Children[1], ber.ClassApplication, ber.TypeConstructed, AppExtendedRequest)
+	if err != nil {
 		return nil
 	}
 
-	opcode := int(p.Children[1].Tag)
+	el["ldap.request-type"] = "extended"
 
-	// This initializes with 0 as resultcode (success)
-	reth := &resultCodeHandler{}
+	// is there an OID and optional value
+	if len(p.Children[1].Children) > 0 {
+		ber.PrintPacket(p)
 
-	if c.catchallFunc() {
-		// Not authenticated
-		reth.resultCode = 1 // operationsError
+		err = checkPacket(p.Children[1].Children[0], ber.ClassContext, ber.TypePrimitive, 0)
+		if err != nil {
+			// this is not an OID
+			return nil
+		}
+
+		oid := p.Children[1].Children[0].Data.String()
+
+		el["ldap.extended-oid"] = oid
+
+		fmt.Printf("ldap.extended-oid %s\n", el["ldap.extended-oid"].(string))
+
+		// catch value if we have one
+		if len(p.Children[1].Children) > 1 {
+			el["ldap.extended-oid-value"] = p.Children[1].Children[1].Bytes()
+		}
+
 	}
 
-	switch opcode {
-	case AppModifyRequest:
-		el["ldap.request-type"] = "modify"
-		reth.replyTypeID = AppModifyResponse
-	case AppAddRequest:
-		el["ldap.request-type"] = "add"
-		reth.replyTypeID = AppAddResponse
-	case AppDelRequest:
-		el["ldap.request-type"] = "delete"
-		reth.replyTypeID = AppDelResponse
-	case AppModifyDNRequest:
-		el["ldap.request-type"] = "modify-dn"
-		reth.replyTypeID = AppModifyDNResponse
-	case AppCompareRequest:
-		el["ldap.request-type"] = "compare"
-		reth.replyTypeID = AppCompareResponse
-	case AppAbandonRequest:
-		el["ldap.request-type"] = "abandon"
-		return nil // This needs no answer
-	default:
-		//el["ldap.request-type"] = opcode
-		//reth.replyTypeID = 1 // protocolError
+	if tlsOID == el["ldap.extended-oid"].(string) {
+		el["ldap.request-type"] = "extended.tls"
+
+		log.Debug("start extFunc...")
+
+		err := e.extFunc()
+		if err == nil {
+			reth.resultCode = ResSuccess
+			reth.matchedDN = el["ldap.extended-oid"].(string)
+		}
+		log.Debugf("extFunc err: %s", err)
 	}
+
 	return reth.handle(p, el)
 }
