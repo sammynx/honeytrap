@@ -32,36 +32,9 @@ package ldap
 
 import ber "github.com/go-asn1-ber/asn1-ber"
 
-// LDAP App Codes
-const (
-	AppBindRequest           = 0
-	AppBindResponse          = 1
-	AppUnbindRequest         = 2
-	AppSearchRequest         = 3
-	AppSearchResultEntry     = 4
-	AppSearchResultDone      = 5
-	AppModifyRequest         = 6
-	AppModifyResponse        = 7
-	AppAddRequest            = 8
-	AppAddResponse           = 9
-	AppDelRequest            = 10
-	AppDelResponse           = 11
-	AppModifyDNRequest       = 12
-	AppModifyDNResponse      = 13
-	AppCompareRequest        = 14
-	AppCompareResponse       = 15
-	AppAbandonRequest        = 16
-	AppSearchResultReference = 19
-	AppExtendedRequest       = 23
-	AppExtendedResponse      = 24
-)
-
-// Used to return anonymous authstate
-type catchallFunc func() bool
-
 //CatchAll handles the not implemented LDAP requests
 type CatchAll struct {
-	catchallFunc catchallFunc
+	isLogin func() bool
 }
 
 func (c *CatchAll) handle(p *ber.Packet, el eventLog) []*ber.Packet {
@@ -73,9 +46,9 @@ func (c *CatchAll) handle(p *ber.Packet, el eventLog) []*ber.Packet {
 	// This initializes with 0 as resultcode (success)
 	reth := &resultCodeHandler{}
 
-	if c.catchallFunc() {
+	if c.isLogin() {
 		// Not authenticated
-		reth.resultCode = 1 // operationsError
+		reth.resultCode = ResOperationsError
 	}
 
 	switch opcode {

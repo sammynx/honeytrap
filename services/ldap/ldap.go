@@ -33,6 +33,7 @@ package ldap
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"net"
 	"strings"
 
@@ -71,7 +72,6 @@ func LDAP(options ...services.ServicerFunc) services.Servicer {
 		Server: Server{
 			Handlers:    make([]requestHandler, 0, 4),
 			Credentials: []string{"root:root"},
-			anon:        true,
 		},
 	}
 
@@ -99,7 +99,7 @@ type Server struct {
 
 	Credentials []string `toml:"credentials"`
 
-	anon bool // anonymous authenticated, false: user is logged in
+	login string // username of logged in user
 }
 
 type eventLog map[string]interface{}
@@ -110,11 +110,6 @@ func (s *ldapService) setHandlers() {
 		&bindFuncHandler{
 			bindFunc: func(binddn string, bindpw []byte) bool {
 
-				// check for anonymous authentication
-				if binddn == "" {
-					s.anon = true // set the anonymous auth flag
-					return true
-				}
 				var cred strings.Builder // build "name:password" string
 				_, err := cred.WriteString(binddn)
 				_, err = cred.WriteRune(':') // separator
@@ -124,9 +119,15 @@ func (s *ldapService) setHandlers() {
 					return false
 				}
 
+				// anonymous bind is ok
+				if cred.Len() == 1 { // empty credentials (":")
+					s.login = ""
+					return true
+				}
+
 				for _, u := range s.Credentials {
 					if u == cred.String() {
-						s.anon = false
+						s.login = binddn
 						return true
 					}
 				}
@@ -140,8 +141,22 @@ func (s *ldapService) setHandlers() {
 
 				ret := make([]*SearchResultEntry, 0, 1)
 
-				// if anonymous auth send only rootDSE
-				if s.anon {
+				// if not authenticated send only rootDSE else nothing
+				if s.login == "" {
+					if req.FilterAttr == "objectClass" && req.FilterValue == "" {
+						ret = append(ret, &SearchResultEntry{
+							DN: "",
+							Attrs: map[string]interface{}{
+								"namingContexts":       "",
+								"supportedLDAPVersion": []string{"2", "3"},
+								"supportedExtension":   "1.3.6.1.4.1.1466.20037",
+								"vendorName":           "Jerry inc.",
+								"vendorVersion":        "Jerry's directory server v2.0.0",
+							},
+						})
+						return ret
+					}
+					return nil
 				}
 
 				// produce a single search result that matches whatever
@@ -161,17 +176,17 @@ func (s *ldapService) setHandlers() {
 							},
 						},
 					})
+					return ret
 				}
-				return ret
+				return nil
 			},
-		},
-	)
+		})
 
 	// CatchAll should be the last handler
 	s.Handlers = append(s.Handlers,
 		&CatchAll{
-			catchallFunc: func() bool {
-				return s.anon
+			isLogin: func() bool {
+				return s.login != ""
 			},
 		})
 }
@@ -183,7 +198,7 @@ func (s *ldapService) SetChannel(c pushers.Channel) {
 
 func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 
-	s.anon = true // start with anonymous authstate
+	s.login = "" // set the anonymous authstate
 
 	br := bufio.NewReader(conn)
 
@@ -193,6 +208,9 @@ func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 		if err != nil {
 			return err
 		}
+
+		fmt.Println("-- REQUEST --")
+		ber.PrintPacket(p)
 
 		// check if packet is readable
 		id, err := messageID(p)
@@ -226,7 +244,11 @@ func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 			plist := h.handle(p, elog)
 
 			if len(plist) > 0 {
+				fmt.Println("-- RESPONSE --")
+
 				for _, part := range plist {
+					ber.PrintPacket(part)
+
 					if _, err := conn.Write(part.Bytes()); err != nil {
 						return err
 					}

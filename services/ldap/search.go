@@ -32,6 +32,7 @@ package ldap
 
 import (
 	"fmt"
+	"strings"
 
 	ber "github.com/go-asn1-ber/asn1-ber"
 )
@@ -75,7 +76,7 @@ func parseSearchRequest(p *ber.Packet, el eventLog) (*SearchRequest, error) {
 	if len(rps) > 0 {
 		ret.BaseDN = string(rps[0].ByteValue)
 	}
-	if len(rps) > 1 {
+	if len(rps) > 5 {
 		ret.Scope = forceInt64(rps[1].Value)
 		ret.DerefAliases = forceInt64(rps[2].Value)
 		ret.SizeLimit = forceInt64(rps[3].Value)
@@ -83,11 +84,16 @@ func parseSearchRequest(p *ber.Packet, el eventLog) (*SearchRequest, error) {
 		ret.TypesOnly = rps[5].Value.(bool)
 	}
 
-	// Check to see if it looks like a simple search criteria
-	err = checkPacket(rps[6], ber.ClassContext, ber.TypeConstructed, 0x3)
-	if err == nil {
+	// is this a present filter like objectClass=*
+	if err := checkPacket(rps[6], ber.ClassContext, ber.TypePrimitive, 0x7); err == nil {
+		ret.FilterAttr = strings.ToLower(string(rps[6].ByteValue))
+		if len(rps[7].Children) == 0 {
+			ret.FilterValue = ""
+		}
+		// Check to see if it looks like a simple search criteria
+	} else if err = checkPacket(rps[6], ber.ClassContext, ber.TypeConstructed, 0x3); err == nil {
 		// It is simple, return the attribute and value
-		ret.FilterAttr = string(rps[6].Children[0].ByteValue)
+		ret.FilterAttr = strings.ToLower(string(rps[6].Children[0].ByteValue))
 		ret.FilterValue = string(rps[6].Children[1].ByteValue)
 	} else {
 		// This is likely some sort of complex search criteria.
@@ -124,13 +130,13 @@ func parseSearchRequest(p *ber.Packet, el eventLog) (*SearchRequest, error) {
 
 	}
 
-	el["ldap.search.basedn"] = ret.BaseDN
-	el["ldap.search.filter"] = ret.FilterAttr
-	el["ldap.search.filtervalue"] = ret.FilterValue
-	el["ldap.search.scope"] = ret.Scope
-	el["ldap.search.derefaliases"] = ret.DerefAliases
-	el["ldap.search.timelimit"] = ret.TimeLimit
-	el["ldap.search.sizelimit"] = ret.SizeLimit
+	el["ldap.search-basedn"] = ret.BaseDN
+	el["ldap.search-filter"] = ret.FilterAttr
+	el["ldap.search-filtervalue"] = ret.FilterValue
+	el["ldap.search-scope"] = ret.Scope
+	el["ldap.search-derefaliases"] = ret.DerefAliases
+	el["ldap.search-timelimit"] = ret.TimeLimit
+	el["ldap.search-sizelimit"] = ret.SizeLimit
 
 	return ret, nil
 }
@@ -188,7 +194,7 @@ func (e *SearchResultEntry) makePacket(msgid int64) *ber.Packet {
 
 }
 
-func makeSearchResultDonePacket(msgid int64) *ber.Packet {
+func makeSearchResultDonePacket(msgid int64, resultcode int) *ber.Packet {
 
 	replypacket := replyEnvelope(msgid)
 
@@ -196,7 +202,7 @@ func makeSearchResultDonePacket(msgid int64) *ber.Packet {
 	searchResult := ber.Encode(
 		ber.ClassApplication, ber.TypeConstructed, ber.Tag(5), nil, "Response")
 	searchResult.AppendChild(
-		ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagEnumerated, 0, "Result Code"))
+		ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagEnumerated, resultcode, "Result Code"))
 	// per the spec these are "matchedDN" and "diagnosticMessage", but we don't need them for this
 	searchResult.AppendChild(
 		ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, "", "Unused"))
@@ -209,27 +215,27 @@ func makeSearchResultDonePacket(msgid int64) *ber.Packet {
 
 }
 
-func makeSearchResultNoSuchObjectPacket(msgid int64) *ber.Packet {
-
-	replypacket := replyEnvelope(msgid)
-
-	searchResult := ber.Encode(
-		ber.ClassApplication, ber.TypeConstructed, ber.Tag(5), nil, "Response")
-	// 32 is "noSuchObject"
-	searchResult.AppendChild(
-		ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagEnumerated, 32, "Result Code"))
-	// per the spec these are "matchedDN" and "diagnosticMessage", but we don't need them for this
-	searchResult.AppendChild(
-		ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, "", "Unused"))
-	searchResult.AppendChild(
-		ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, "", "Unused"))
-
-	replypacket.AppendChild(searchResult)
-
-	return replypacket
-
-}
-
+//func makeSearchResultNoSuchObjectPacket(msgid int64) *ber.Packet {
+//
+//	replypacket := replyEnvelope(msgid)
+//
+//	searchResult := ber.Encode(
+//		ber.ClassApplication, ber.TypeConstructed, ber.Tag(5), nil, "Response")
+//	// 32 is "noSuchObject"
+//	searchResult.AppendChild(
+//		ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagEnumerated, 32, "Result Code"))
+//	// per the spec these are "matchedDN" and "diagnosticMessage", but we don't need them for this
+//	searchResult.AppendChild(
+//		ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, "", "Unused"))
+//	searchResult.AppendChild(
+//		ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, "", "Unused"))
+//
+//	replypacket.AppendChild(searchResult)
+//
+//	return replypacket
+//
+//}
+//
 // a callback function to produce search results; should return nil to mean
 // we chose not to attempt to search (i.e. this request is not for us);
 // or return empty slice to mean 0 results (or slice with data for results)
@@ -254,21 +260,17 @@ func (h *searchFuncHandler) handle(p *ber.Packet, el eventLog) []*ber.Packet {
 
 	el["ldap.request-type"] = "search"
 
-	res := h.searchFunc(req)
-	// the function is telling us it is opting not to process this search request
-	if res == nil {
-		return nil
-	}
-
 	msgid, err := messageID(p)
 	if err != nil {
 		log.Debugf("Failed to extract message id")
 		return nil
 	}
 
+	res := h.searchFunc(req)
+
 	// no results
 	if len(res) < 1 {
-		return []*ber.Packet{makeSearchResultNoSuchObjectPacket(msgid)}
+		return []*ber.Packet{makeSearchResultDonePacket(msgid, ResNoSuchObject)}
 	}
 
 	// format each result
@@ -279,7 +281,7 @@ func (h *searchFuncHandler) handle(p *ber.Packet, el eventLog) []*ber.Packet {
 	}
 
 	// end with a done packet
-	ret = append(ret, makeSearchResultDonePacket(msgid))
+	ret = append(ret, makeSearchResultDonePacket(msgid, ResSuccess))
 
 	return ret
 }
