@@ -52,10 +52,11 @@ func (c *CatchAll) handle(p *ber.Packet, el eventLog) []*ber.Packet {
 
 	opcode := int(p.Children[1].Tag)
 
-	// This initializes with 0 as resultcode (success)
-	reth := &resultCodeHandler{}
+	reth := &resultCodeHandler{
+		resultCode: ResSuccess,
+	}
 
-	if c.isLogin() {
+	if !c.isLogin() {
 		// Not authenticated
 		reth.resultCode = ResOperationsError
 	}

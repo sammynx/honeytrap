@@ -52,6 +52,7 @@ func NewConn(c net.Conn) *Conn {
 	}
 }
 
+// StartTLS
 func (c *Conn) StartTLS(config *tls.Config) error {
 
 	if c.isTLS {
@@ -66,7 +67,6 @@ func (c *Conn) StartTLS(config *tls.Config) error {
 
 	c.con = tc
 	c.ConnReader = bufio.NewReader(tc)
-
 	c.isTLS = true
 
 	return nil

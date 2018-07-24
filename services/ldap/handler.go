@@ -37,36 +37,6 @@ import (
 	ber "github.com/go-asn1-ber/asn1-ber"
 )
 
-const (
-	// LDAP App Codes
-	AppBindRequest           = 0
-	AppBindResponse          = 1
-	AppUnbindRequest         = 2
-	AppSearchRequest         = 3
-	AppSearchResultEntry     = 4
-	AppSearchResultDone      = 5
-	AppModifyRequest         = 6
-	AppModifyResponse        = 7
-	AppAddRequest            = 8
-	AppAddResponse           = 9
-	AppDelRequest            = 10
-	AppDelResponse           = 11
-	AppModifyDNRequest       = 12
-	AppModifyDNResponse      = 13
-	AppCompareRequest        = 14
-	AppCompareResponse       = 15
-	AppAbandonRequest        = 16
-	AppSearchResultReference = 19
-	AppExtendedRequest       = 23
-	AppExtendedResponse      = 24
-
-	// LDAP result codes
-	ResSuccess         = 0
-	ResOperationsError = 1
-	ResProtocolError   = 2
-	ResInvalidCred     = 49
-)
-
 type requestHandler interface {
 	handle(*ber.Packet, eventLog) []*ber.Packet
 }
@@ -118,7 +88,6 @@ func isUnbindRequest(p *ber.Packet) bool {
 			return true
 		}
 	}
-
 	return false
 }
 
@@ -193,6 +162,5 @@ func forceInt64(v interface{}) int64 {
 	default:
 		log.Panicf("forceInt64 doesn't understand values of type: %t", v)
 	}
-	// We shouldn't get here, but Go wants a return
 	return 0
 }

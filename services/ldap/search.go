@@ -35,7 +35,6 @@ import (
 	"strings"
 
 	ber "github.com/go-asn1-ber/asn1-ber"
-	"github.com/lunny/log"
 )
 
 var (
@@ -86,7 +85,7 @@ func parseSearchRequest(p *ber.Packet, el eventLog) (*SearchRequest, error) {
 		ret.TypesOnly = rps[5].Value.(bool)
 	}
 
-	// is this a present filter like objectClass=*
+	// is this a present filter like (objectClass=*)
 	if err := checkPacket(rps[6], ber.ClassContext, ber.TypePrimitive, 0x7); err == nil {
 		ret.FilterAttr = strings.ToLower(string(rps[6].ByteValue))
 		if len(rps[7].Children) == 0 {

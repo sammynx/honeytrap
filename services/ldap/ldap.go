@@ -31,8 +31,8 @@
 package ldap
 
 import (
-	"bufio"
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -89,6 +89,11 @@ func LDAP(options ...services.ServicerFunc) services.Servicer {
 			Handlers: make([]requestHandler, 0, 4),
 
 			Credentials: []string{"root:root"},
+
+			tlsConfig: &tls.Config{
+				Certificates:       []tls.Certificate{*cert},
+				InsecureSkipVerify: true,
+			},
 		},
 	}
 
@@ -109,6 +114,8 @@ type ldapService struct {
 
 	*Conn
 
+	wantTLS bool
+
 	c pushers.Channel
 }
 
@@ -117,6 +124,8 @@ type Server struct {
 	Handlers []requestHandler
 
 	Credentials []string `toml:"credentials"`
+
+	tlsConfig *tls.Config
 
 	login string // username of logged in user
 }
@@ -128,16 +137,10 @@ func (s *ldapService) setHandlers() {
 	s.Handlers = append(s.Handlers,
 		&extFuncHandler{
 			tlsFunc: func() error {
-
-				if s.isTLS {
-					return errors.New("TLS already established")
-				}
-
 				if s.tlsConfig != nil {
 					s.wantTLS = true
 					return nil
 				}
-
 				return errors.New("TLS not available")
 			},
 		})
@@ -179,7 +182,7 @@ func (s *ldapService) setHandlers() {
 
 				// if not authenticated send only rootDSE else nothing
 				if s.login == "" {
-					if req.FilterAttr == "objectClass" && req.FilterValue == "" {
+					if req.FilterAttr == "objectclass" && req.FilterValue == "" {
 						ret = append(ret, &SearchResultEntry{
 							DN: "",
 							Attrs: map[string]interface{}{
@@ -222,10 +225,14 @@ func (s *ldapService) setHandlers() {
 	s.Handlers = append(s.Handlers,
 		&CatchAll{
 			isLogin: func() bool {
-				return s.login != ""
+				return s.isLogin()
 			},
 		},
 	)
+}
+
+func (s *ldapService) isLogin() bool {
+	return s.login != ""
 }
 
 func (s *ldapService) SetChannel(c pushers.Channel) {
@@ -234,10 +241,11 @@ func (s *ldapService) SetChannel(c pushers.Channel) {
 }
 
 func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
+	s.wantTLS = false
 
 	s.login = "" // set the anonymous authstate
 
-	br := bufio.NewReader(conn)
+	s.Conn = NewConn(conn)
 
 	for {
 
@@ -286,7 +294,7 @@ func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 				for _, part := range plist {
 					ber.PrintPacket(part)
 
-					if _, err := conn.Write(part.Bytes()); err != nil {
+					if _, err := s.con.Write(part.Bytes()); err != nil {
 						return err
 					}
 				}
@@ -295,11 +303,9 @@ func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 			}
 		}
 
-		// check if we want to set up tls
 		if s.wantTLS {
 			s.wantTLS = false
-
-			if err := s.Conn.StartTLS(s.tlsConfig); err != nil {
+			if err := s.StartTLS(s.tlsConfig); err != nil {
 				return err
 			}
 		}

@@ -80,8 +80,7 @@ func (e *extFuncHandler) handle(p *ber.Packet, el eventLog) []*ber.Packet {
 	if tlsOID == el["ldap.extended-oid"].(string) {
 		el["ldap.request-type"] = "extended.tls"
 
-		err := e.tlsFunc()
-		if err == nil {
+		if err := e.tlsFunc(); err == nil {
 			reth.resultCode = ResSuccess
 			reth.matchedDN = ""
 			reth.diagnosticMsg = ""

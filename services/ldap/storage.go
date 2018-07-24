@@ -102,9 +102,8 @@ func generateCert(pempriv []byte) ([]byte, error) {
 		NotAfter:              time.Now().AddDate(1, 0, 0),
 		SubjectKeyId:          []byte{},
 		BasicConstraintsValid: true,
-		IsCA:        false,
-		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		KeyUsage:    x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
 	}
 
 	block, _ := pem.Decode(pempriv)
