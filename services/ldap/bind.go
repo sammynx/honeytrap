@@ -54,7 +54,7 @@ func (h *bindFuncHandler) handle(p *ber.Packet, el eventLog) []*ber.Packet {
 		// Package is not meant for us
 		return nil
 	}
-	err := checkPacket(p.Children[1], ber.ClassApplication, ber.TypeConstructed, 0x0)
+	err := checkPacket(p.Children[1], ber.ClassApplication, ber.TypeConstructed, AppBindRequest)
 	if err != nil {
 		// Package is not meant for us
 		return nil

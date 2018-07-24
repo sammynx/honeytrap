@@ -33,6 +33,7 @@ package ldap
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -58,6 +59,11 @@ services=[ "ldap" ]
 port="udp/389"
 services=[ "ldap" ]
 
+#LDAPS
+[[port]]
+port="tcp/636"
+services=["ldap"]
+
 */
 
 var (
@@ -68,14 +74,25 @@ var (
 // LDAP service setup
 func LDAP(options ...services.ServicerFunc) services.Servicer {
 
+	store, err := getStorage()
+	if err != nil {
+		log.Errorf("LDAP: Could not initialize storage. %s", err.Error())
+	}
+
+	cert, err := store.Certificate()
+	if err != nil {
+		log.Errorf("TLS: %s", err.Error())
+	}
+
 	s := &ldapService{
 		Server: Server{
-			Handlers:    make([]requestHandler, 0, 4),
+			Handlers: make([]requestHandler, 0, 4),
+
 			Credentials: []string{"root:root"},
 		},
 	}
 
-	// Set requestHandlers
+	// Set request handlers
 	s.setHandlers()
 
 	for _, o := range options {
@@ -89,6 +106,8 @@ func LDAP(options ...services.ServicerFunc) services.Servicer {
 
 type ldapService struct {
 	Server
+
+	*Conn
 
 	c pushers.Channel
 }
@@ -105,6 +124,23 @@ type Server struct {
 type eventLog map[string]interface{}
 
 func (s *ldapService) setHandlers() {
+
+	s.Handlers = append(s.Handlers,
+		&extFuncHandler{
+			tlsFunc: func() error {
+
+				if s.isTLS {
+					return errors.New("TLS already established")
+				}
+
+				if s.tlsConfig != nil {
+					s.wantTLS = true
+					return nil
+				}
+
+				return errors.New("TLS not available")
+			},
+		})
 
 	s.Handlers = append(s.Handlers,
 		&bindFuncHandler{
@@ -188,7 +224,8 @@ func (s *ldapService) setHandlers() {
 			isLogin: func() bool {
 				return s.login != ""
 			},
-		})
+		},
+	)
 }
 
 func (s *ldapService) SetChannel(c pushers.Channel) {
@@ -204,7 +241,7 @@ func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 
 	for {
 
-		p, err := ber.ReadPacket(br)
+		p, err := ber.ReadPacket(s.ConnReader)
 		if err != nil {
 			return err
 		}
@@ -253,8 +290,17 @@ func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 						return err
 					}
 				}
-				// Handled the request, break out of the handling loop
+				// request is handled
 				break
+			}
+		}
+
+		// check if we want to set up tls
+		if s.wantTLS {
+			s.wantTLS = false
+
+			if err := s.Conn.StartTLS(s.tlsConfig); err != nil {
+				return err
 			}
 		}
 
@@ -268,4 +314,5 @@ func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 		))
 
 	}
+	return nil
 }

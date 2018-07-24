@@ -35,6 +35,7 @@ import (
 	"strings"
 
 	ber "github.com/go-asn1-ber/asn1-ber"
+	"github.com/lunny/log"
 )
 
 var (
@@ -75,6 +76,7 @@ func parseSearchRequest(p *ber.Packet, el eventLog) (*SearchRequest, error) {
 
 	if len(rps) > 0 {
 		ret.BaseDN = string(rps[0].ByteValue)
+		el["ldap.search.basedn"] = ret.BaseDN
 	}
 	if len(rps) > 5 {
 		ret.Scope = forceInt64(rps[1].Value)
@@ -99,35 +101,44 @@ func parseSearchRequest(p *ber.Packet, el eventLog) (*SearchRequest, error) {
 		// This is likely some sort of complex search criteria.
 		// Try to generate a searchFingerPrint based on the values
 		var getContextValue func(p *ber.Packet) string
+
 		getContextValue = func(p *ber.Packet) string {
-			ret := ""
+			var err error
+			var sb strings.Builder
+
 			if p.Value != nil {
-				ret = fmt.Sprint(p.Value)
+				_, err = sb.WriteString(fmt.Sprint(p.Value))
 			}
+
 			for _, child := range p.Children {
 				childVal := getContextValue(child)
-				if childVal != "" {
-					if ret != "" {
-						ret += ","
-					}
-					ret += childVal
-				}
+				_, err = sb.WriteRune(',')
+				_, err = sb.WriteString(childVal)
 			}
-			return ret
+
+			if err != nil {
+				log.Debugf("ldap-search: writing search-fingerprint failed: %s", err)
+				return ""
+			}
+
+			return sb.String()
 		}
 
-		ret.FilterAttr = "searchFingerprint"
-		ret.FilterValue = getContextValue(rps[6])
+		var buf strings.Builder
+		_, err = buf.WriteRune('\'')
+
+		ret.FilterAttr = "#search-fingerprint"
+		_, err = buf.WriteString(getContextValue(rps[6]))
+
 		for index := 7; index < len(rps); index++ {
-			value := getContextValue(rps[index])
-			if value != "" {
-				if ret.FilterValue != "" {
-					ret.FilterValue += ","
-				}
-				ret.FilterValue += value
+			if buf.Len() > 0 {
+				_, err = buf.WriteRune(',')
 			}
+			_, err = buf.WriteString(getContextValue(rps[index]))
 		}
 
+		_, err = buf.WriteRune('\'')
+		ret.FilterValue = buf.String()
 	}
 
 	el["ldap.search-basedn"] = ret.BaseDN
