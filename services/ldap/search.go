@@ -31,6 +31,7 @@
 package ldap
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -39,10 +40,7 @@ import (
 
 var (
 	//ErrNotASearchRequest error if it is not a search request
-	ErrNotASearchRequest = fmt.Errorf("not a search request")
-
-	//ErrSearchRequestTooComplex error if the search request is to complex
-	ErrSearchRequestTooComplex = fmt.Errorf("search too complex to be parsed")
+	ErrNotASearchRequest = errors.New("not a search request")
 )
 
 //SearchRequest a simplified ldap search request
@@ -87,14 +85,14 @@ func parseSearchRequest(p *ber.Packet, el eventLog) (*SearchRequest, error) {
 
 	// is this a present filter like (objectClass=*)
 	if err := checkPacket(rps[6], ber.ClassContext, ber.TypePrimitive, 0x7); err == nil {
-		ret.FilterAttr = strings.ToLower(string(rps[6].ByteValue))
+		ret.FilterAttr = string(rps[6].ByteValue)
 		if len(rps[7].Children) == 0 {
 			ret.FilterValue = ""
 		}
 		// Check to see if it looks like a simple search criteria
 	} else if err = checkPacket(rps[6], ber.ClassContext, ber.TypeConstructed, 0x3); err == nil {
 		// It is simple, return the attribute and value
-		ret.FilterAttr = strings.ToLower(string(rps[6].Children[0].ByteValue))
+		ret.FilterAttr = string(rps[6].Children[0].ByteValue)
 		ret.FilterValue = string(rps[6].Children[1].ByteValue)
 	} else {
 		// This is likely some sort of complex search criteria.
@@ -151,10 +149,13 @@ func parseSearchRequest(p *ber.Packet, el eventLog) (*SearchRequest, error) {
 	return ret, nil
 }
 
+// dseMap map holding attributes for a rootDSE
+type AttributeMap map[string][]string
+
 //SearchResultEntry a simplified ldap search response
 type SearchResultEntry struct {
-	DN    string                 // DN of this search result
-	Attrs map[string]interface{} // map of attributes
+	DN    string // DN of this search result
+	Attrs AttributeMap
 }
 
 func (e *SearchResultEntry) makePacket(msgid int64) *ber.Packet {
@@ -177,19 +178,10 @@ func (e *SearchResultEntry) makePacket(msgid int64) *ber.Packet {
 		attrvals := ber.Encode(
 			ber.ClassUniversal, ber.TypeConstructed, ber.TagSet, nil, "Values")
 
-		switch v := v.(type) {
-		case string:
+		for _, v1 := range v {
 			attrvals.AppendChild(
-				ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, v, "String Value"))
-		case []string:
-			for _, v1 := range v {
-				attrvals.AppendChild(
-					ber.NewString(
-						ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, v1, "String Value"))
-			}
-		default:
-			log.Debugf("skipping value for key '%s', I can't process type '%t'", k, v)
-			continue
+				ber.NewString(
+					ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, v1, "String Value"))
 		}
 
 		attr.AppendChild(attrvals)
@@ -225,27 +217,6 @@ func makeSearchResultDonePacket(msgid int64, resultcode int) *ber.Packet {
 
 }
 
-//func makeSearchResultNoSuchObjectPacket(msgid int64) *ber.Packet {
-//
-//	replypacket := replyEnvelope(msgid)
-//
-//	searchResult := ber.Encode(
-//		ber.ClassApplication, ber.TypeConstructed, ber.Tag(5), nil, "Response")
-//	// 32 is "noSuchObject"
-//	searchResult.AppendChild(
-//		ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagEnumerated, 32, "Result Code"))
-//	// per the spec these are "matchedDN" and "diagnosticMessage", but we don't need them for this
-//	searchResult.AppendChild(
-//		ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, "", "Unused"))
-//	searchResult.AppendChild(
-//		ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, "", "Unused"))
-//
-//	replypacket.AppendChild(searchResult)
-//
-//	return replypacket
-//
-//}
-//
 // a callback function to produce search results; should return nil to mean
 // we chose not to attempt to search (i.e. this request is not for us);
 // or return empty slice to mean 0 results (or slice with data for results)
@@ -260,9 +231,6 @@ func (h *searchFuncHandler) handle(p *ber.Packet, el eventLog) []*ber.Packet {
 	req, err := parseSearchRequest(p, el)
 	if err == ErrNotASearchRequest {
 		return nil
-	} else if err == ErrSearchRequestTooComplex {
-		el["ldap.request-type"] = "search"
-		return nil
 	} else if err != nil {
 		log.Debugf("Error while trying to parse search request: %v", err)
 		return nil
@@ -272,7 +240,7 @@ func (h *searchFuncHandler) handle(p *ber.Packet, el eventLog) []*ber.Packet {
 
 	msgid, err := messageID(p)
 	if err != nil {
-		log.Debugf("Failed to extract message id")
+		log.Debugf("Failed to extract message id: %s", err)
 		return nil
 	}
 

@@ -30,8 +30,8 @@
  */
 package ldap
 
-// LDAP App Codes
 const (
+	// LDAP App Codes
 	AppBindRequest           = 0
 	AppBindResponse          = 1
 	AppUnbindRequest         = 2
@@ -60,4 +60,5 @@ const (
 	ResNoSuchObject             = 32
 	ResInvalidCred              = 49
 	ResInsufficientAccessRights = 50
+	ResOther                    = 80
 )

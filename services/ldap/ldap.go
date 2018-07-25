@@ -34,7 +34,6 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
-	"fmt"
 	"net"
 	"strings"
 
@@ -51,6 +50,13 @@ import (
 type="ldap"
 credentials=[ "user:password", "admin:admin" ]
 
+## rootDSE values, empty values can be omitted
+#naming-contexts=[ "dc=example,dc=com", "dc=example2,dc=com" ]
+#supported-ldap-version=[ "2", "3" ]
+#supported-extension=[ "1.3.6.1.4.1.1466.20037" ]
+#vendor-name=[ "HT Directory Server" ]
+#vendor-version=[ "0.1.0.0" ]
+
 [[port]]
 port="tcp/389"
 services=[ "ldap" ]
@@ -58,11 +64,6 @@ services=[ "ldap" ]
 [[port]]
 port="udp/389"
 services=[ "ldap" ]
-
-#LDAPS
-[[port]]
-port="tcp/636"
-services=["ldap"]
 
 */
 
@@ -94,17 +95,22 @@ func LDAP(options ...services.ServicerFunc) services.Servicer {
 				Certificates:       []tls.Certificate{*cert},
 				InsecureSkipVerify: true,
 			},
+
+			DSE: &DSE{
+				SupportedLDAPVersion: []string{"2", "3"},
+				SupportedExtension:   []string{"1.3.6.1.4.1.1466.20037"},
+			},
 		},
 	}
-
-	// Set request handlers
-	s.setHandlers()
 
 	for _, o := range options {
 		if err := o(s); err != nil {
 			log.Warning(err.Error())
 		}
 	}
+
+	// Set request handlers
+	s.setHandlers()
 
 	return s
 }
@@ -119,17 +125,6 @@ type ldapService struct {
 	c pushers.Channel
 }
 
-//Server ldap server data
-type Server struct {
-	Handlers []requestHandler
-
-	Credentials []string `toml:"credentials"`
-
-	tlsConfig *tls.Config
-
-	login string // username of logged in user
-}
-
 type eventLog map[string]interface{}
 
 func (s *ldapService) setHandlers() {
@@ -137,6 +132,10 @@ func (s *ldapService) setHandlers() {
 	s.Handlers = append(s.Handlers,
 		&extFuncHandler{
 			tlsFunc: func() error {
+				if s.isTLS {
+					return errors.New("TLS already established")
+				}
+
 				if s.tlsConfig != nil {
 					s.wantTLS = true
 					return nil
@@ -181,33 +180,22 @@ func (s *ldapService) setHandlers() {
 				ret := make([]*SearchResultEntry, 0, 1)
 
 				// if not authenticated send only rootDSE else nothing
-				if s.login == "" {
-					if req.FilterAttr == "objectclass" && req.FilterValue == "" {
-						ret = append(ret, &SearchResultEntry{
-							DN: "",
-							Attrs: map[string]interface{}{
-								"namingContexts":       "",
-								"supportedLDAPVersion": []string{"2", "3"},
-								"supportedExtension":   "1.3.6.1.4.1.1466.20037",
-								"vendorName":           "Jerry inc.",
-								"vendorVersion":        "Jerry's directory server v2.0.0",
-							},
-						})
-						return ret
-					}
-					return nil
+				if req.FilterAttr == "" && req.FilterValue == "" && !s.isLogin() {
+					ret = append(ret, s.DSE.Get())
+					return ret
 				}
 
 				// produce a single search result that matches whatever
 				// they are searching for
-				if req.FilterAttr == "uid" {
+				if req.FilterAttr == "uid" || req.FilterAttr == "givenName" {
 					ret = append(ret, &SearchResultEntry{
 						DN: "cn=" + req.FilterValue + "," + req.BaseDN,
-						Attrs: map[string]interface{}{
-							"sn":            req.FilterValue,
-							"cn":            req.FilterValue,
-							"uid":           req.FilterValue,
-							"homeDirectory": "/home/" + req.FilterValue,
+						Attrs: AttributeMap{
+							"sn":            []string{req.FilterValue},
+							"cn":            []string{req.FilterValue},
+							"uid":           []string{req.FilterValue},
+							"givenName":     []string{req.FilterValue},
+							"homeDirectory": []string{"/home/" + req.FilterValue},
 							"objectClass": []string{
 								"top",
 								"posixAccount",
@@ -231,10 +219,6 @@ func (s *ldapService) setHandlers() {
 	)
 }
 
-func (s *ldapService) isLogin() bool {
-	return s.login != ""
-}
-
 func (s *ldapService) SetChannel(c pushers.Channel) {
 
 	s.c = c
@@ -253,9 +237,6 @@ func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 		if err != nil {
 			return err
 		}
-
-		fmt.Println("-- REQUEST --")
-		ber.PrintPacket(p)
 
 		// check if packet is readable
 		id, err := messageID(p)
@@ -289,11 +270,7 @@ func (s *ldapService) Handle(ctx context.Context, conn net.Conn) error {
 			plist := h.handle(p, elog)
 
 			if len(plist) > 0 {
-				fmt.Println("-- RESPONSE --")
-
 				for _, part := range plist {
-					ber.PrintPacket(part)
-
 					if _, err := s.con.Write(part.Bytes()); err != nil {
 						return err
 					}
